@@ -22,7 +22,8 @@ public class LocalizationService : ILocalizationService
 
     public LocalizationService()
     {
-        CurrentLanguage = Preferences.Default.Get(PrefKey, "en");
+        var saved = Preferences.Default.Get(PrefKey, "en");
+        CurrentLanguage = Available.Any(l => l.Code == saved) ? saved : "en";
         Culture = CultureInfo.CreateSpecificCulture(CurrentLanguage);
         ApplyCulture();
     }
@@ -48,10 +49,15 @@ public class LocalizationService : ILocalizationService
 
     public void SetLanguage(string code)
     {
-        if (CurrentLanguage == code) return;
+        // An unknown code would make CreateSpecificCulture throw and take the UI with it.
+        // Settings now arrive from the account, so the value is no longer only ever one this
+        // build put in Preferences itself.
+        if (CurrentLanguage == code || Available.All(l => l.Code != code)) return;
+
         CurrentLanguage = code;
         Culture = CultureInfo.CreateSpecificCulture(code);
         Preferences.Default.Set(PrefKey, code);
+        LocalSettings.Touch();
         ApplyCulture();
         OnChanged?.Invoke();
     }

@@ -31,6 +31,14 @@ public class ApiDbContext(DbContextOptions<ApiDbContext> options) : IdentityDbCo
     {
         base.OnModelCreating(modelBuilder);
 
+        // Bounded so a client cannot push an unbounded string into the account row. Both are
+        // short codes ("PLN", "pl") that every client validates against its own list on read.
+        modelBuilder.Entity<AppUser>(b =>
+        {
+            b.Property(u => u.Currency).IsRequired().HasMaxLength(8);
+            b.Property(u => u.Language).IsRequired().HasMaxLength(16);
+        });
+
         modelBuilder.Entity<Category>(b =>
         {
             b.Property(c => c.Name).IsRequired().HasMaxLength(64);

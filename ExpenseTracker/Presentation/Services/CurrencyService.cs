@@ -44,6 +44,7 @@ public class CurrencyService : ICurrencyService
 
         Selected = currency;
         Preferences.Set(PrefsKey, code);
+        LocalSettings.Touch();
         OnChanged?.Invoke();
     }
 

@@ -67,7 +67,13 @@ namespace ExpenseTracker
 
             var app = builder.Build();
 
-            // Apply migrations and seed sample data on first launch
+            // Apply migrations on first launch.
+            //
+            // Sample data is deliberately NOT seeded here any more. DataSeeder writes thirty
+            // expenses and ten subscriptions whenever the local database has none, which was
+            // fine as a demo but is wrong once accounts are real: a fresh install seeded them
+            // before the user signed in, and the first sync pushed all forty rows into their
+            // cloud account. Call DataSeeder.SeedAsync by hand if you want a populated demo.
             Task.Run(async () =>
             {
                 var factory = app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
@@ -95,8 +101,6 @@ namespace ExpenseTracker
                     logger.LogError(ex, "Database migration failed.");
                     throw;
                 }
-
-                await DataSeeder.SeedAsync(db);
             }).GetAwaiter().GetResult();
 
             return app;

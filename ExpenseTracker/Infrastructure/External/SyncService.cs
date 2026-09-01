@@ -4,6 +4,7 @@ using System.Text.Json;
 using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Domain.Entities;
 using ExpenseTracker.Infrastructure.Persistence;
+using ExpenseTracker.Presentation.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -11,23 +12,33 @@ namespace ExpenseTracker.Infrastructure.External;
 
 public class SyncService : ISyncService
 {
-    private const string LastSyncKey = "last_sync_time";
+    // Public so sign-out can clear it: a marker from one account must not carry into the next.
+    public const string LastSyncKey = "last_sync_time";
 
     private readonly IAuthService _auth;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly HttpClient _http;
     private readonly ILogger<SyncService> _logger;
+    private readonly ICurrencyService _currency;
+    private readonly ILocalizationService _localization;
+    private readonly IThemeService _theme;
 
     public SyncService(
         IAuthService auth,
         IDbContextFactory<AppDbContext> dbFactory,
         HttpClient http,
-        ILogger<SyncService> logger)
+        ILogger<SyncService> logger,
+        ICurrencyService currency,
+        ILocalizationService localization,
+        IThemeService theme)
     {
         _auth = auth;
         _dbFactory = dbFactory;
         _http = http;
         _logger = logger;
+        _currency = currency;
+        _localization = localization;
+        _theme = theme;
     }
 
     public DateTime? LastSyncTime
@@ -83,7 +94,13 @@ public class SyncService : ISyncService
             var subscriptions = await BuildSubscriptionPushItems(db, lastSync, ct);
             var categories = await BuildCategoryPushItems(db, lastSync, ct);
 
-            var pushPayload = new PushPayload(expenses, incomes, subscriptions, categories);
+            var pushPayload = new PushPayload(
+                expenses, incomes, subscriptions, categories,
+                new SyncSettings(
+                    _currency.Selected.Code,
+                    _localization.CurrentLanguage,
+                    _theme.IsDarkMode,
+                    LocalSettings.UpdatedAt));
 
             using var pushRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/sync/push");
             pushRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -102,7 +119,10 @@ public class SyncService : ISyncService
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
 
             if (pulled is not null)
+            {
                 await UpsertPulledData(db, pulled, ct);
+                ApplyPulledSettings(pulled.Settings);
+            }
 
             LastSyncTime = DateTime.UtcNow;
             return true;
@@ -310,13 +330,35 @@ public class SyncService : ISyncService
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Adopts the account's display preferences when they are newer than this device's.
+    /// </summary>
+    /// <remarks>
+    /// The push above already sent this device's stamp, so anything newer coming back is a
+    /// change made elsewhere. The setters stamp the preferences as locally edited, which would
+    /// make the next sync push these values straight back as if this device had chosen them —
+    /// harmless, but it would beat a concurrent edit on another device purely by being
+    /// re-stamped. Restoring the server's stamp afterwards keeps the ordering honest.
+    /// </remarks>
+    private void ApplyPulledSettings(SyncSettings? settings)
+    {
+        if (settings is null || settings.UpdatedAt <= LocalSettings.UpdatedAt) return;
+
+        _currency.SetCurrency(settings.Currency);
+        _localization.SetLanguage(settings.Language);
+        _theme.SetDarkMode(settings.IsDarkMode);
+
+        LocalSettings.UpdatedAt = settings.UpdatedAt;
+    }
+
     // ── Push DTOs ─────────────────────────────────────────────────────────────
 
     private record PushPayload(
         List<PushExpense> Expenses,
         List<PushIncome> Incomes,
         List<PushSubscription> Subscriptions,
-        List<PushCategory> Categories);
+        List<PushCategory> Categories,
+        SyncSettings Settings);
 
     private record PushExpense(Guid SyncId, string Description, decimal Amount, DateTime Date,
         Guid CategorySyncId, string? Notes, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
@@ -338,7 +380,11 @@ public class SyncService : ISyncService
         List<PulledIncome>? Incomes,
         List<PulledSubscription>? Subscriptions,
         List<PulledCategory>? Categories,
-        DateTime ServerTime);
+        DateTime ServerTime,
+        SyncSettings? Settings);
+
+    /// <summary>Account-wide display preferences. One per account, replaced wholesale.</summary>
+    private record SyncSettings(string Currency, string Language, bool IsDarkMode, DateTime UpdatedAt);
 
     private record PulledExpense(Guid SyncId, string Description, decimal Amount, DateTime Date,
         Guid CategorySyncId, string? Notes, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);

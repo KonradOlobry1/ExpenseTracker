@@ -160,6 +160,7 @@ builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 
 // UI services the shared components inject. Scoped = per Blazor circuit.
 builder.Services.AddScoped<BrowserPreferences>();
+builder.Services.AddScoped<AccountSettingsWriter>();
 builder.Services.AddScoped<ICurrencyService, WebCurrencyService>();
 builder.Services.AddScoped<IThemeService, WebThemeService>();
 builder.Services.AddScoped<ILocalizationService, WebLocalizationService>();

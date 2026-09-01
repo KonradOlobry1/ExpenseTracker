@@ -28,18 +28,27 @@ public record SyncCategoryDto(
     Guid SyncId, string Name, string Icon, string Color, bool IsSystem,
     DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
 
+/// <summary>
+/// Account-wide display preferences. Not a row, so it carries no SyncId — there is exactly
+/// one per account and it is replaced wholesale rather than merged field by field.
+/// </summary>
+public record SyncSettingsDto(
+    string Currency, string Language, bool IsDarkMode, DateTime UpdatedAt);
+
 public record SyncPushRequest(
     List<SyncExpenseDto>? Expenses,
     List<SyncIncomeDto>? Incomes,
     List<SyncSubscriptionDto>? Subscriptions,
-    List<SyncCategoryDto>? Categories);
+    List<SyncCategoryDto>? Categories,
+    SyncSettingsDto? Settings = null);
 
 public record SyncPullResponse(
     List<SyncExpenseDto>? Expenses,
     List<SyncIncomeDto>? Incomes,
     List<SyncSubscriptionDto>? Subscriptions,
     List<SyncCategoryDto>? Categories,
-    DateTime ServerTime);
+    DateTime ServerTime,
+    SyncSettingsDto? Settings = null);
 
 public static class SyncMapping
 {

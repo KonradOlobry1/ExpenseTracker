@@ -13,10 +13,15 @@ public class ThemeService : IThemeService
         IsDarkMode = Preferences.Default.Get(PrefKey, false);
     }
 
-    public void Toggle()
+    public void Toggle() => SetDarkMode(!IsDarkMode);
+
+    public void SetDarkMode(bool isDarkMode)
     {
-        IsDarkMode = !IsDarkMode;
-        Preferences.Default.Set(PrefKey, IsDarkMode);
+        if (isDarkMode == IsDarkMode) return;
+
+        IsDarkMode = isDarkMode;
+        Preferences.Default.Set(PrefKey, isDarkMode);
+        LocalSettings.Touch();
         OnChanged?.Invoke();
     }
 }

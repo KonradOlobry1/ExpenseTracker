@@ -10,6 +10,7 @@
 @inject UserManager<AppUser> UserManager
 @inject ApiDbContext Db
 @inject NavigationManager Nav
+@inject IHttpContextAccessor HttpContextAccessor
 
 @* Statically rendered on purpose: signing in writes a Set-Cookie response header, which an
    interactive circuit cannot do — so this is a plain form post, not an @onclick.
@@ -69,6 +70,7 @@
             await DefaultCategories.EnsureForUserAsync(Db, user.Id);
 
             await SignInManager.SignInAsync(user, isPersistent: true);
+            WriteSettingsCookies(user);
         }
         else
         {
@@ -88,6 +90,9 @@
                 _error = "That email and password did not match an account.";
                 return;
             }
+
+            var signedIn = await UserManager.FindByEmailAsync(Input.Email);
+            if (signedIn is not null) WriteSettingsCookies(signedIn);
         }
 
         // Only ever redirect to a path on this site — never to a caller-supplied absolute URL.
@@ -96,6 +101,35 @@
             : "/";
 
         Nav.NavigateTo(target, forceLoad: true);
+    }
+
+    /// <summary>
+    /// Copies the account's display preferences into this browser's cookies.
+    /// </summary>
+    /// <remarks>
+    /// The UI services read these cookies from the incoming request, which is the only way a
+    /// synchronous property can have the right value before the first render. Sign-in is the
+    /// one place in the web app that is a real HTTP response rather than a circuit, so it is
+    /// the one place that can set them — which is also why it must happen here rather than in
+    /// a layout. Without it, a browser that has never seen this account starts on the defaults
+    /// and the user's currency and language appear to have been forgotten.
+    /// </remarks>
+    private void WriteSettingsCookies(AppUser user)
+    {
+        var cookies = HttpContextAccessor.HttpContext?.Response.Cookies;
+        if (cookies is null) return;
+
+        var options = new CookieOptions
+        {
+            Expires = DateTimeOffset.UtcNow.AddYears(1),
+            IsEssential = true,   // a display preference the user set, not tracking
+            SameSite = SameSiteMode.Lax,
+            Path = "/"
+        };
+
+        cookies.Append(PrefKeys.Currency, user.Currency, options);
+        cookies.Append(PrefKeys.Language, user.Language, options);
+        cookies.Append(PrefKeys.Theme, user.IsDarkMode ? "dark" : "light", options);
     }
 
     private sealed class InputModel

@@ -62,8 +62,30 @@ public class SyncController(ApiDbContext db) : ControllerBase
         await UpsertAsync(db.Incomes, request.Incomes, userId, now,
             d => d.SyncId, (d, e) => d.Apply(e), d => d.ToEntity(userId));
 
+        await ApplySettingsAsync(request.Settings, userId);
+
         await db.SaveChangesAsync();
         return Ok();
+    }
+
+    /// <summary>
+    /// Settings are one record per account, so there is nothing to match on — only the stamp
+    /// decides. A client that has never changed them sends <see cref="DateTime.MinValue"/>,
+    /// which loses to anything already stored and so cannot wipe another device's choice.
+    /// The values themselves are not validated here: every client resolves an unknown
+    /// currency or language back to its own default when reading.
+    /// </summary>
+    private async Task ApplySettingsAsync(SyncSettingsDto? settings, string userId)
+    {
+        if (settings is null) return;
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user is null || settings.UpdatedAt <= user.SettingsUpdatedAt) return;
+
+        user.Currency = settings.Currency;
+        user.Language = settings.Language;
+        user.IsDarkMode = settings.IsDarkMode;
+        user.SettingsUpdatedAt = settings.UpdatedAt;
     }
 
     /// <summary>
@@ -116,12 +138,19 @@ public class SyncController(ApiDbContext db) : ControllerBase
         Guid SyncIdOf(int categoryId) =>
             categorySyncIdById.TryGetValue(categoryId, out var s) ? s : Guid.Empty;
 
+        // Settings ignore `since`. They are four fields, and a client that filtered them out
+        // as unchanged would have no way to notice a value it had never seen.
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+
         return Ok(new SyncPullResponse(
             (await Changed(db.Expenses, userId, sinceTime)).Select(e => e.ToDto(SyncIdOf(e.CategoryId))).ToList(),
             (await Changed(db.Incomes, userId, sinceTime)).Select(i => i.ToDto()).ToList(),
             (await Changed(db.Subscriptions, userId, sinceTime)).Select(s => s.ToDto(SyncIdOf(s.CategoryId))).ToList(),
             (await Changed(db.Categories, userId, sinceTime)).Select(c => c.ToDto()).ToList(),
-            DateTime.UtcNow));
+            DateTime.UtcNow,
+            user is null
+                ? null
+                : new SyncSettingsDto(user.Currency, user.Language, user.IsDarkMode, user.SettingsUpdatedAt)));
     }
 
     /// <summary>Rows for this user changed since the given server time; all of them if unset.</summary>

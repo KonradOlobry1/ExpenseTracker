@@ -1,8 +1,13 @@
-﻿using System.Globalization;
+﻿using System.Data.Common;
+using System.Globalization;
+using System.Security.Claims;
+using ExpenseTracker.Api.Data;
+using ExpenseTracker.Api.Models;
 using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Domain.ValueObjects;
 using ExpenseTracker.Localization;
 using ExpenseTracker.Presentation.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace ExpenseTracker.Api.Web;
 
@@ -18,14 +23,57 @@ internal static class PrefKeys
     public const string Language = "pref.lang";
 }
 
+/// <summary>
+/// Mirrors a preference change onto the signed-in account, so it follows the user to their
+/// phone and to any other browser.
+/// </summary>
+/// <remarks>
+/// The cookie is still what the next render reads — it arrives with the request, whereas a
+/// database round-trip cannot be made from a synchronous property getter. The account row is
+/// the durable copy: <c>Account/Login</c> writes the cookies from it on sign-in, so a browser
+/// that has never seen this account still starts with the right values.
+/// </remarks>
+public class AccountSettingsWriter(
+    IDbContextFactory<ApiDbContext> dbFactory,
+    IHttpContextAccessor accessor,
+    ILogger<AccountSettingsWriter> logger)
+{
+    public void Write(Action<AppUser> change) => _ = WriteAsync(change);
+
+    private async Task WriteAsync(Action<AppUser> change)
+    {
+        var userId = accessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return;   // the login page renders before there is an account
+
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync();
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user is null) return;
+
+            change(user);
+            user.SettingsUpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        catch (DbException ex)
+        {
+            // Fire-and-forget, like the cookie write it accompanies: losing the durable copy
+            // is not worth faulting the click the user just made.
+            logger.LogError(ex, "Could not persist a preference change to the account.");
+        }
+    }
+}
+
 /// <summary>Currency selection for one browser session.</summary>
 public class WebCurrencyService : ICurrencyService
 {
     private readonly BrowserPreferences _prefs;
+    private readonly AccountSettingsWriter _account;
 
-    public WebCurrencyService(BrowserPreferences prefs)
+    public WebCurrencyService(BrowserPreferences prefs, AccountSettingsWriter account)
     {
         _prefs = prefs;
+        _account = account;
 
         var saved = prefs.Read(PrefKeys.Currency);
         if (saved is not null && Currencies.FirstOrDefault(c => c.Code == saved) is { } restored)
@@ -63,6 +111,7 @@ public class WebCurrencyService : ICurrencyService
 
         Selected = currency;
         _prefs.Write(PrefKeys.Currency, code);
+        _account.Write(u => u.Currency = code);
         OnChanged?.Invoke();
     }
 
@@ -76,20 +125,27 @@ public class WebCurrencyService : ICurrencyService
 public class WebThemeService : IThemeService
 {
     private readonly BrowserPreferences _prefs;
+    private readonly AccountSettingsWriter _account;
 
-    public WebThemeService(BrowserPreferences prefs)
+    public WebThemeService(BrowserPreferences prefs, AccountSettingsWriter account)
     {
         _prefs = prefs;
+        _account = account;
         IsDarkMode = prefs.Read(PrefKeys.Theme) == "dark";
     }
 
     public bool IsDarkMode { get; private set; }
     public event Action? OnChanged;
 
-    public void Toggle()
+    public void Toggle() => SetDarkMode(!IsDarkMode);
+
+    public void SetDarkMode(bool isDarkMode)
     {
-        IsDarkMode = !IsDarkMode;
-        _prefs.Write(PrefKeys.Theme, IsDarkMode ? "dark" : "light");
+        if (isDarkMode == IsDarkMode) return;
+
+        IsDarkMode = isDarkMode;
+        _prefs.Write(PrefKeys.Theme, isDarkMode ? "dark" : "light");
+        _account.Write(u => u.IsDarkMode = isDarkMode);
         OnChanged?.Invoke();
     }
 }
@@ -98,10 +154,12 @@ public class WebThemeService : IThemeService
 public class WebLocalizationService : ILocalizationService
 {
     private readonly BrowserPreferences _prefs;
+    private readonly AccountSettingsWriter _account;
 
-    public WebLocalizationService(BrowserPreferences prefs)
+    public WebLocalizationService(BrowserPreferences prefs, AccountSettingsWriter account)
     {
         _prefs = prefs;
+        _account = account;
 
         var saved = prefs.Read(PrefKeys.Language);
         if (saved is not null && Available.Any(l => l.Code == saved))
@@ -142,11 +200,14 @@ public class WebLocalizationService : ILocalizationService
 
     public void SetLanguage(string code)
     {
-        if (CurrentLanguage == code) return;
+        // Unknown codes are ignored rather than passed to CreateSpecificCulture: the value can
+        // now originate from another device's settings, not only from this app's own list.
+        if (CurrentLanguage == code || Available.All(l => l.Code != code)) return;
 
         CurrentLanguage = code;
         Culture = CultureInfo.CreateSpecificCulture(code);
         _prefs.Write(PrefKeys.Language, code);
+        _account.Write(u => u.Language = code);
         OnChanged?.Invoke();
     }
 }

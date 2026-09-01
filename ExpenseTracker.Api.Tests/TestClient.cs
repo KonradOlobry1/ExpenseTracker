@@ -36,18 +36,22 @@ internal static class TestClient
     public record PushCategory(Guid SyncId, string Name, string Icon, string Color,
         bool IsSystem, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted = false);
 
+    public record PushSettings(string Currency, string Language, bool IsDarkMode, DateTime UpdatedAt);
+
     public record PushPayload(
         List<PushExpense>? Expenses = null,
         List<object>? Incomes = null,
         List<object>? Subscriptions = null,
-        List<PushCategory>? Categories = null);
+        List<PushCategory>? Categories = null,
+        PushSettings? Settings = null);
 
     public record PullResponse(
         List<PushExpense>? Expenses,
         List<object>? Incomes,
         List<object>? Subscriptions,
         List<PushCategory>? Categories,
-        DateTime ServerTime);
+        DateTime ServerTime,
+        PushSettings? Settings);
 
     public static PushCategory Category(Guid id, string name = "Food", bool isDeleted = false)
         => new(id, name, "restaurant", "#F44336", true, new DateTime(2026, 1, 1), null, isDeleted);

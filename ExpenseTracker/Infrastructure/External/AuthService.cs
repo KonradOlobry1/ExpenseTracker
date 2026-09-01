@@ -1,7 +1,11 @@
-﻿using System.Net.Http.Json;
+﻿using System.Data.Common;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using ExpenseTracker.Application.Interfaces;
+using ExpenseTracker.Infrastructure.Persistence;
+using ExpenseTracker.Presentation.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace ExpenseTracker.Infrastructure.External;
@@ -14,11 +18,16 @@ public class AuthService : IAuthService
 
     private readonly HttpClient _http;
     private readonly ILogger<AuthService> _logger;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
-    public AuthService(HttpClient http, ILogger<AuthService> logger)
+    public AuthService(
+        HttpClient http,
+        ILogger<AuthService> logger,
+        IDbContextFactory<AppDbContext> dbFactory)
     {
         _http = http;
         _logger = logger;
+        _dbFactory = dbFactory;
     }
 
     // A fresh install has no saved preference, and an empty base URL aborts login before the
@@ -118,11 +127,43 @@ public class AuthService : IAuthService
         }
     }
 
-    public Task LogoutAsync()
+    /// <summary>
+    /// Signs out and discards everything belonging to that account on this device.
+    /// </summary>
+    /// <remarks>
+    /// Clearing only the token used to leave the local replica and the last-sync marker in
+    /// place, so signing in as somebody else kept the previous account's rows on screen — and
+    /// worse, the next edit to one of them pushed it into the new account. The replica is a
+    /// cache of one account's data; it has no meaning once that account is signed out.
+    ///
+    /// The API base URL deliberately survives: it describes the server, not the account, and
+    /// clearing it would make the next sign-in fail with an empty Server URL field.
+    /// </remarks>
+    public async Task LogoutAsync()
     {
         SecureStorage.Default.Remove(TokenKey);
         Preferences.Default.Remove(ExpiryKey);
-        return Task.CompletedTask;
+        Preferences.Default.Remove(SyncService.LastSyncKey);
+        Preferences.Default.Remove(LocalSettings.StampKey);
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+
+            // Expenses and subscriptions reference categories, so they go first. Categories
+            // themselves are restored by the seed data in the migrations on next launch, and
+            // re-synced from the account after the next sign-in.
+            await db.Expenses.IgnoreQueryFilters().ExecuteDeleteAsync();
+            await db.Subscriptions.IgnoreQueryFilters().ExecuteDeleteAsync();
+            await db.Incomes.IgnoreQueryFilters().ExecuteDeleteAsync();
+            await db.Categories.IgnoreQueryFilters().Where(c => !c.IsSystem).ExecuteDeleteAsync();
+        }
+        catch (DbException ex)
+        {
+            // Signing out must succeed regardless: a stale replica is recoverable, a session
+            // that cannot be ended is not.
+            _logger.LogError(ex, "Could not clear the local database on sign-out.");
+        }
     }
 
     public async Task<bool> IsLoggedInAsync()
