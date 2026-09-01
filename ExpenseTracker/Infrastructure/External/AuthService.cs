@@ -21,9 +21,16 @@ public class AuthService : IAuthService
         _logger = logger;
     }
 
+    // A fresh install has no saved preference, and an empty base URL aborts login before the
+    // request leaves the device — which surfaced as "invalid credentials". Defaulting to the
+    // hosted service means the field arrives filled in; self-hosters overwrite it on the
+    // login page and their value is what gets persisted.
+    public const string DefaultApiBaseUrl =
+        "https://expensetracker-e7bgaqgsbjhwarau.polandcentral-01.azurewebsites.net";
+
     public string? ApiBaseUrl
     {
-        get => Preferences.Default.Get<string?>(ApiUrlKey, null);
+        get => Preferences.Default.Get<string?>(ApiUrlKey, DefaultApiBaseUrl);
         set
         {
             if (value is not null)

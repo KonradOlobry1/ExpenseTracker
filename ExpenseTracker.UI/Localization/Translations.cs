@@ -144,6 +144,7 @@ public static class Translations
             ["Login_Register"]            = "Register",
             ["Login_ServerUrl"]           = "Server URL",
             ["Login_InvalidCredentials"]  = "Invalid email or password.",
+            ["Login_NoServerUrl"]         = "Enter the server URL.",
             ["Login_RegisterSuccess"]     = "Account created. You are now signed in.",
             ["Login_Error"]               = "An error occurred. Check the server URL.",
 
@@ -344,6 +345,7 @@ public static class Translations
             ["Login_Register"]            = "Zarejestruj się",
             ["Login_ServerUrl"]           = "Adres serwera",
             ["Login_InvalidCredentials"]  = "Nieprawidłowy e-mail lub hasło.",
+            ["Login_NoServerUrl"]         = "Podaj adres serwera.",
             ["Login_RegisterSuccess"]     = "Konto utworzone. Jesteś zalogowany.",
             ["Login_Error"]               = "Wystąpił błąd. Sprawdź adres serwera.",
 

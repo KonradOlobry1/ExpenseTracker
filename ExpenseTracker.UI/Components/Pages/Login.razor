@@ -130,6 +130,14 @@
             return;
         }
 
+        // An empty URL makes LoginAsync return false without a request, which the branch
+        // below reported as a wrong password.
+        if (string.IsNullOrWhiteSpace(_signInServerUrl))
+        {
+            _signInError = L["Login_NoServerUrl"];
+            return;
+        }
+
         _working = true;
         try
         {
@@ -163,6 +171,12 @@
         if (_regPassword != _regConfirmPassword)
         {
             _registerError = L["Login_ConfirmPassword"];
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_regServerUrl))
+        {
+            _registerError = L["Login_NoServerUrl"];
             return;
         }
 
