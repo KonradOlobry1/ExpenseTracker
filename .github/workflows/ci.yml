@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both SDKs: the test projects target net9.0, but ExpenseTracker.UI multi-targets
+      # net9.0 and net10.0 and restore evaluates every target framework — a .NET 9 SDK alone
+      # fails on the net10.0 one before compiling anything.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      # The test projects are built individually rather than via the solution: the solution
+      # includes the MAUI head, which needs Android and iOS workloads this runner does not
+      # have and does not need. Neither test project references it.
+      - name: Domain tests
+        run: dotnet test ExpenseTracker.Domain.Tests -c Release --logger "trx;LogFileName=domain.trx" --results-directory artifacts
+
+      # Boots the real API against in-memory SQLite, so no database or secrets are needed.
+      - name: API integration tests
+        run: dotnet test ExpenseTracker.Api.Tests -c Release --logger "trx;LogFileName=api.trx" --results-directory artifacts
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/*.trx
+          if-no-files-found: warn
+
+  docker:
+    name: Container build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds only — nothing is pushed. Catches a broken Dockerfile before a deploy does.
+      # Context is the repository root because the API references sibling projects.
+      - name: Build image
+        run: docker build -f ExpenseTracker.Api/Dockerfile -t expensetracker-api:ci .
+
+      # A built image proves compilation, not that the app starts. This starts it with a
+      # deliberately unreachable database and only checks the sign-in page renders, which
+      # exercises startup, config binding and the Blazor host without needing SQL Server.
+      - name: Smoke test
+        run: |
+          docker run -d --name ci-smoke -p 8080:8080 \
+            -e "Jwt__Key=ci-smoke-test-signing-key-comfortably-over-32-bytes" \
+            -e "RunMigrationsAtStartup=false" \
+            -e "ConnectionStrings__DefaultConnection=Server=nonexistent;Database=x;" \
+            expensetracker-api:ci
+
+          for i in $(seq 1 30); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/account/login)" = "200" ]; then
+              echo "Sign-in page served."
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "App did not respond in time. Container logs:"
+              docker logs ci-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # The API must still reject anonymous callers.
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/sync/pull)
+          if [ "$code" != "401" ]; then
+            echo "Expected 401 from /api/sync/pull, got $code"
+            docker logs ci-smoke
+            exit 1
+          fi
+          echo "API rejected anonymous request as expected."
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f ci-smoke || true
