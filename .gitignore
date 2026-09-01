@@ -51,3 +51,6 @@ Thumbs.db
 
 ## Claude Code local settings (machine-specific permissions)
 .claude/settings.local.json
+
+## Local environment values for docker compose
+.env
