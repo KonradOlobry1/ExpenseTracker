@@ -3,9 +3,12 @@
 # Only this project is containerised. The MAUI app installs on phones and desktops; there is
 # nothing meaningful to put in an image.
 #
-# Build from the REPOSITORY ROOT, not from ExpenseTracker.Api/, because the API references
-# Domain, Application and UI:
-#   docker build -t expensetracker-api .
+# This file sits next to the .csproj (where Visual Studio's container publish looks for it),
+# but the build CONTEXT is the repository root, because the API references Domain,
+# Application and UI. The csproj sets <DockerfileContext>..</DockerfileContext> so VS agrees.
+#
+# From the command line, build from the repository root:
+#   docker build -f ExpenseTracker.Api/Dockerfile -t expensetracker-api .
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 # The .NET 10 SDK, even though the API targets net9.0: ExpenseTracker.UI multi-targets
