@@ -11,9 +11,6 @@
 #   docker build -f ExpenseTracker.Api/Dockerfile -t expensetracker-api .
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-# The .NET 10 SDK, even though the API targets net9.0: ExpenseTracker.UI multi-targets
-# net9.0 and net10.0, and restore evaluates every target framework — a .NET 9 SDK fails on
-# the net10.0 one before it builds anything. A newer SDK happily builds older frameworks.
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
@@ -30,13 +27,11 @@ COPY ExpenseTracker.Application/  ExpenseTracker.Application/
 COPY ExpenseTracker.UI/           ExpenseTracker.UI/
 COPY ExpenseTracker.Api/          ExpenseTracker.Api/
 
-# Publish for net9.0 — the framework the runtime image below provides, and the one the
-# Azure App Service stack is pinned to.
 RUN dotnet publish ExpenseTracker.Api/ExpenseTracker.Api.csproj \
-        -c Release -f net9.0 -o /app --no-restore
+        -c Release -o /app --no-restore
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Run as the non-root user the base image provides.

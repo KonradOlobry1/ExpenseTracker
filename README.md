@@ -21,15 +21,16 @@ Browser ────────────────────┘
 
 | Project | Target | Role |
 |---|---|---|
-| `ExpenseTracker.Domain` | net9.0 | Entities, repository interfaces, `PredictionEngine` |
-| `ExpenseTracker.Application` | net9.0 | Service interfaces and implementations |
+| `ExpenseTracker.Domain` | net10.0 | Entities, repository interfaces, `PredictionEngine` |
+| `ExpenseTracker.Application` | net10.0 | Service interfaces and implementations |
 | `ExpenseTracker.Infrastructure` | net10.0 | `AppDbContext`, device repositories, SQLite migrations |
-| `ExpenseTracker.UI` | net9.0 + net10.0 | Shared Razor components and UI service interfaces |
+| `ExpenseTracker.UI` | net10.0 | Shared Razor components and UI service interfaces |
 | `ExpenseTracker` | net10.0-* | MAUI head — platform implementations only |
-| `ExpenseTracker.Api` | net9.0 | Sync API, Blazor Server UI, SQL Server migrations |
+| `ExpenseTracker.Api` | net10.0 | Sync API, Blazor Server UI, SQL Server migrations |
 
-`ExpenseTracker.UI` multi-targets deliberately: the API is net9.0, the MAUI head is net10.0,
-and some component APIs differ between them.
+Everything targets .NET 10. Mixing frameworks previously caused a subtle failure: a
+component compiled against ASP.NET Core 9 silently emitted `Router.NotFoundPage` — a .NET 10
+API — as a plain string attribute, which then failed to cast at run time.
 
 ## Running
 
