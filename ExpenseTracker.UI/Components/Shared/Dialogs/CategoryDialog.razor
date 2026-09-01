@@ -1,0 +1,120 @@
+@inject ILocalizationService L
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Name"
+                                  Label="@L["Common_Name"]"
+                                  Required="true"
+                                  MaxLength="64"
+                                  Immediate="true" />
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.Icon" Label="@L["Cat_Icon"]" Dense="true">
+                        @foreach (var (name, icon) in Icons)
+                        {
+                            <MudSelectItem Value="@name">
+                                <MudIcon Icon="@icon" Size="Size.Small" Class="mr-2" />
+                                @name
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+
+                <MudItem xs="12" sm="6">
+                    <MudColorPicker @bind-Text="_model.Color"
+                                    Label="@L["Cat_Color"]"
+                                    PickerVariant="PickerVariant.Inline"
+                                    ColorPickerView="ColorPickerView.Palette" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudText Typo="Typo.caption" Class="mr-2">@L["Cat_Preview"]</MudText>
+                    <MudChip T="string"
+                             Size="Size.Small"
+                             Icon="@ResolveIcon(_model.Icon)"
+                             Style="@($"background-color:{_model.Color}22; color:{_model.Color}")"
+                             Text="@(string.IsNullOrWhiteSpace(_model.Name) ? "…" : _model.Name)" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L["Common_Cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit">
+            @L["Common_Save"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private MudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>Existing category to edit; null creates a new one.</summary>
+    [Parameter] public Category? Category { get; set; }
+
+    private MudForm? _form;
+    private Category _model = new();
+
+    // Category.Icon stores a Material icon *name*, not the SVG path, so it survives sync as
+    // plain text and stays readable in the database.
+    private static readonly (string Name, string Icon)[] Icons =
+    [
+        ("restaurant",     MudBlazor.Icons.Material.Filled.Restaurant),
+        ("directions_car", MudBlazor.Icons.Material.Filled.DirectionsCar),
+        ("home",           MudBlazor.Icons.Material.Filled.Home),
+        ("favorite",       MudBlazor.Icons.Material.Filled.Favorite),
+        ("movie",          MudBlazor.Icons.Material.Filled.Movie),
+        ("bolt",           MudBlazor.Icons.Material.Filled.Bolt),
+        ("shopping_cart",  MudBlazor.Icons.Material.Filled.ShoppingCart),
+        ("flight",         MudBlazor.Icons.Material.Filled.Flight),
+        ("school",         MudBlazor.Icons.Material.Filled.School),
+        ("pets",           MudBlazor.Icons.Material.Filled.Pets),
+        ("fitness_center", MudBlazor.Icons.Material.Filled.FitnessCenter),
+        ("phone",          MudBlazor.Icons.Material.Filled.Phone),
+        ("card_giftcard",  MudBlazor.Icons.Material.Filled.CardGiftcard),
+        ("build",          MudBlazor.Icons.Material.Filled.Build),
+        ("savings",        MudBlazor.Icons.Material.Filled.Savings),
+        ("more_horiz",     MudBlazor.Icons.Material.Filled.MoreHoriz),
+    ];
+
+    /// <summary>Maps a stored icon name to its SVG path, falling back if the name is unknown.</summary>
+    public static string ResolveIcon(string? name)
+        => Icons.FirstOrDefault(i => i.Name == name).Icon ?? MudBlazor.Icons.Material.Filled.MoreHoriz;
+
+    protected override void OnInitialized()
+    {
+        _model = Category is null
+            ? new Category { Icon = "more_horiz", Color = "#607D8B" }
+            : new Category
+            {
+                Id = Category.Id,
+                SyncId = Category.SyncId,
+                Name = Category.Name,
+                Icon = Category.Icon,
+                Color = Category.Color,
+                IsSystem = Category.IsSystem,
+                CreatedAt = Category.CreatedAt,
+                UserId = Category.UserId
+            };
+    }
+
+    private async Task Submit()
+    {
+        if (_form is not null)
+        {
+            await _form.Validate();
+            if (!_form.IsValid) return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.Name)) return;
+
+        _model.Name = _model.Name.Trim();
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

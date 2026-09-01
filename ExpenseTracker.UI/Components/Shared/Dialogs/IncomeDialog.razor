@@ -1,0 +1,100 @@
+﻿@inject ICurrencyService CurrencyService
+@inject ILocalizationService L
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_valid">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description"
+                                  Label="@L["Common_Description"]"
+                                  Required="true"
+                                  RequiredError="@L["Dlg_DescriptionRequired"]" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.Amount"
+                                     Label="@L["Common_Amount"]"
+                                     Format="F2"
+                                     Required="true"
+                                     Min="0.01m"
+                                     RequiredError="@L["Dlg_AmountRequired"]"
+                                     Adornment="Adornment.Start"
+                                     AdornmentText="@CurrencyService.Selected.Symbol" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.BillingCycle" Label="@L["Dlg_BillingCycle"]" Required="true">
+                        @foreach (BillingCycle cycle in Enum.GetValues<BillingCycle>())
+                        {
+                            <MudSelectItem Value="cycle">@L.Cycle(cycle)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudAlert Severity="Severity.Success" Dense="true" Class="py-1">
+                        @L["Dlg_MonthlyEquiv"] <strong>@CurrencyService.Format(PredictionEngine.ToMonthlyEquivalent(_model.Amount, _model.BillingCycle))</strong>
+                    </MudAlert>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_startDate" Label="@L["Dlg_StartDate"]" Required="true" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes"
+                                  Label="@L["Common_Notes"]"
+                                  Lines="2"
+                                  AutoGrow="true" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudSwitch @bind-Value="_model.IsActive" Label="@L["Common_Active"]" Color="Color.Success" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L["Common_Cancel"]</MudButton>
+        <MudButton Color="Color.Success" OnClick="Submit" Disabled="!_valid">@L["Common_Save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public Income? Income { get; set; }
+
+    MudForm _form = null!;
+    bool _valid;
+    Income _model = new();
+    DateTime? _startDate;
+
+    protected override void OnInitialized()
+    {
+        if (Income is not null)
+        {
+            _model = new Income
+            {
+                Id           = Income.Id,
+                Description  = Income.Description,
+                Amount       = Income.Amount,
+                BillingCycle = Income.BillingCycle,
+                StartDate    = Income.StartDate,
+                Notes        = Income.Notes,
+                IsActive     = Income.IsActive,
+                CreatedAt    = Income.CreatedAt
+            };
+        }
+
+        _startDate = _model.StartDate;
+    }
+
+    void Cancel() => MudDialog.Cancel();
+
+    async Task Submit()
+    {
+        await _form.Validate();
+        if (!_valid) return;
+
+        if (_startDate.HasValue)
+            _model.StartDate = _startDate.Value;
+
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+}

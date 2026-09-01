@@ -1,0 +1,99 @@
+@inject ICategoryService CategoryService
+@inject ICurrencyService CurrencyService
+@inject ILocalizationService L
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_valid">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Description"
+                                  Label="@L["Common_Description"]"
+                                  Required="true"
+                                  RequiredError="@L["Dlg_DescriptionRequired"]" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.Amount"
+                                     Label="@L["Common_Amount"]"
+                                     Format="F2"
+                                     Required="true"
+                                     Min="0.01m"
+                                     RequiredError="@L["Dlg_AmountRequired"]"
+                                     Adornment="Adornment.Start"
+                                     AdornmentText="@CurrencyService.Selected.Symbol" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.CategoryId" Label="@L["Common_Category"]" Required="true">
+                        @foreach (var cat in _categories)
+                        {
+                            <MudSelectItem Value="cat.Id">@L.Category(cat.Name)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_date" Label="@L["Common_Date"]" Required="true" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes"
+                                  Label="@L["Common_Notes"]"
+                                  Lines="3"
+                                  AutoGrow="true" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L["Common_Cancel"]</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Submit" Disabled="!_valid">@L["Common_Save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public Expense? Expense { get; set; }
+
+    MudForm _form = null!;
+    bool _valid;
+    List<Category> _categories = [];
+    Expense _model = new();
+    DateTime? _date;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = L.SortCategories(await CategoryService.GetAllAsync());
+
+        if (Expense is not null)
+        {
+            _model = new Expense
+            {
+                Id          = Expense.Id,
+                Description = Expense.Description,
+                Amount      = Expense.Amount,
+                CategoryId  = Expense.CategoryId,
+                Notes       = Expense.Notes,
+                Date        = Expense.Date,
+                CreatedAt   = Expense.CreatedAt
+            };
+        }
+        else if (_categories.Count > 0)
+        {
+            _model.CategoryId = _categories[0].Id;
+        }
+
+        _date = _model.Date;
+    }
+
+    void Cancel() => MudDialog.Cancel();
+
+    async Task Submit()
+    {
+        await _form.Validate();
+        if (!_valid) return;
+
+        if (_date.HasValue)
+            _model.Date = _date.Value;
+
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+}

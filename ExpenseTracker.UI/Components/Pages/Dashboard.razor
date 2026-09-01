@@ -1,0 +1,129 @@
+@page "/dashboard"
+@inject IExpenseService ExpenseService
+@inject ISubscriptionService SubscriptionService
+@inject IIncomeService IncomeService
+@inject ICurrencyService CurrencyService
+@inject ILocalizationService L
+
+<MudText Typo="Typo.h5" Class="mb-4">@L["Dashboard_Title"]</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-4" />
+}
+
+<!-- Row 1: stat cards -->
+<MudGrid>
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@L["Dashboard_ThisMonth"]</MudText>
+            <MudText Typo="Typo.h5" Class="mt-1">@CurrencyService.Format(_monthTotal)</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Tertiary">
+                @if (_monthIncome > 0)
+                {
+                    @($"{_spentPercent:0}% {L["Dashboard_OfIncome"]}")
+                }
+                else
+                {
+                    @DateTime.Today.ToString("MMMM yyyy")
+                }
+            </MudText>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@L["Dashboard_MonthlyIncome"]</MudText>
+            <MudText Typo="Typo.h5" Class="mt-1" Color="Color.Success">@CurrencyService.Format(_monthIncome)</MudText>
+            <MudText Typo="Typo.caption" Color="@(_remaining >= 0 ? Color.Success : Color.Error)">
+                @($"{L["Dashboard_Remaining"]} {CurrencyService.Format(_remaining)}")
+            </MudText>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@L["Dashboard_MonthlySubs"]</MudText>
+            <MudText Typo="Typo.h5" Class="mt-1">@CurrencyService.Format(_monthlySubBurn)</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Tertiary">@_activeSubCount @L["Dashboard_ActiveCount"]</MudText>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@L["Dashboard_LargestCat"]</MudText>
+            <MudText Typo="Typo.h5" Class="mt-1">@(_topCategory is null ? "—" : L.Category(_topCategory))</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Tertiary">@CurrencyService.Format(_topCategoryAmount)</MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<!-- Row 2: charts -->
+<MudGrid Class="mt-4">
+    <MudItem xs="12" md="8">
+        <SpendingBarChart />
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-3">@L["Dashboard_ByCategory"]</MudText>
+            @if (_categoryAmounts.Length > 0)
+            {
+                <MudChart ChartType="ChartType.Donut"
+                          InputData="_categoryAmounts"
+                          InputLabels="@(_categoryLabels.Select(L.Category).ToArray())"
+                          Width="100%"
+                          Height="250px" />
+            }
+            else
+            {
+                <MudText Color="Color.Secondary" Align="Align.Center" Class="mt-4">
+                    @L["Dashboard_NoExpenses"]
+                </MudText>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    bool _loading = true;
+    decimal _monthTotal;
+    decimal _monthIncome;
+    decimal _remaining;
+    double _spentPercent;
+    decimal _monthlySubBurn;
+    int _activeSubCount;
+    string? _topCategory;
+    decimal _topCategoryAmount;
+    double[] _categoryAmounts = [];
+    string[] _categoryLabels = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.Today;
+
+        var expenses = await ExpenseService.GetByMonthAsync(today.Year, today.Month);
+        _monthTotal = expenses.Sum(e => e.Amount);
+
+        _monthIncome = await IncomeService.GetMonthlyEquivalentTotalAsync();
+        _remaining   = _monthIncome - _monthTotal - _monthlySubBurn;
+        _spentPercent = _monthIncome > 0 ? (double)(_monthTotal / _monthIncome * 100) : 0;
+
+        var categoryTotals = await ExpenseService.GetCategoryTotalsAsync(today.Year, today.Month);
+        if (categoryTotals.Count > 0)
+        {
+            var top = categoryTotals.MaxBy(kv => kv.Value);
+            _topCategory = top.Key;
+            _topCategoryAmount = top.Value;
+            _categoryLabels = categoryTotals.Keys.ToArray();
+            _categoryAmounts = categoryTotals.Values.Select(v => (double)v).ToArray();
+        }
+
+        var subs = await SubscriptionService.GetAllAsync(activeOnly: true);
+        _activeSubCount  = subs.Count;
+        _monthlySubBurn  = subs.Sum(s => PredictionEngine.ToMonthlyEquivalent(s.Amount, s.BillingCycle));
+        _remaining       = _monthIncome - _monthTotal - _monthlySubBurn;
+
+        _loading = false;
+    }
+}

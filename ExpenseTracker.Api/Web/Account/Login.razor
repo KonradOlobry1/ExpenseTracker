@@ -1,0 +1,99 @@
+@page "/account/login"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@attribute [Microsoft.AspNetCore.Components.ExcludeFromInteractiveRouting]
+@layout AccountLayout
+@using System.ComponentModel.DataAnnotations
+@using ExpenseTracker.Api.Data
+@using ExpenseTracker.Api.Models
+@using Microsoft.AspNetCore.Identity
+@inject SignInManager<AppUser> SignInManager
+@inject UserManager<AppUser> UserManager
+@inject ApiDbContext Db
+@inject NavigationManager Nav
+
+@* Statically rendered on purpose: signing in writes a Set-Cookie response header, which an
+   interactive circuit cannot do — so this is a plain form post, not an @onclick.
+
+   That rules out MudBlazor's inputs. MudTextField renders no `name` attribute outside an
+   interactive render mode, so the fields simply would not post. InputText does emit one. *@
+
+<div class="login-shell">
+    <div class="login-card">
+        <h1>Expense Tracker</h1>
+
+        @if (_error is not null)
+        {
+            <p class="login-error" role="alert">@_error</p>
+        }
+
+        <EditForm Model="Input" FormName="login" OnValidSubmit="SubmitAsync" method="post">
+            <DataAnnotationsValidator />
+
+            <label for="email">Email</label>
+            <InputText id="email" @bind-Value="Input.Email" type="email" autocomplete="username" />
+            <ValidationMessage For="@(() => Input.Email)" />
+
+            <label for="password">Password</label>
+            <InputText id="password" @bind-Value="Input.Password" type="password" autocomplete="current-password" />
+            <ValidationMessage For="@(() => Input.Password)" />
+
+            <label class="login-check">
+                <InputCheckbox @bind-Value="Input.Register" />
+                <span>I need an account</span>
+            </label>
+
+            <button type="submit">Continue</button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm] private InputModel Input { get; set; } = new();
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private string? _error;
+
+    private async Task SubmitAsync()
+    {
+        if (Input.Register)
+        {
+            var user = new AppUser { UserName = Input.Email, Email = Input.Email };
+            var created = await UserManager.CreateAsync(user, Input.Password);
+            if (!created.Succeeded)
+            {
+                _error = string.Join(" ", created.Errors.Select(e => e.Description));
+                return;
+            }
+
+            // A new account has no categories, and without one no expense can be created.
+            await DefaultCategories.EnsureForUserAsync(Db, user.Id);
+
+            await SignInManager.SignInAsync(user, isPersistent: true);
+        }
+        else
+        {
+            var result = await SignInManager.PasswordSignInAsync(
+                Input.Email, Input.Password, isPersistent: true, lockoutOnFailure: false);
+
+            if (!result.Succeeded)
+            {
+                _error = "That email and password did not match an account.";
+                return;
+            }
+        }
+
+        // Only ever redirect to a path on this site — never to a caller-supplied absolute URL.
+        var target = !string.IsNullOrWhiteSpace(ReturnUrl) && ReturnUrl.StartsWith('/')
+            ? ReturnUrl
+            : "/";
+
+        Nav.NavigateTo(target, forceLoad: true);
+    }
+
+    private sealed class InputModel
+    {
+        [Required, EmailAddress] public string Email { get; set; } = string.Empty;
+        [Required] public string Password { get; set; } = string.Empty;
+        public bool Register { get; set; }
+    }
+}

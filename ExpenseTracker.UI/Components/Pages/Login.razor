@@ -1,0 +1,194 @@
+@page "/login"
+@inject IAuthService AuthService
+@inject NavigationManager Nav
+@inject ILocalizationService L
+
+<MudText Typo="Typo.h5" Class="mb-4">@L["Login_Title"]</MudText>
+
+<MudPaper Class="pa-4" Elevation="2" Style="max-width:440px">
+    <MudTabs Elevation="0" Rounded="false" ApplyEffectsToContainer="true" PanelClass="pt-4">
+
+        @*── Sign In ──*@
+        <MudTabPanel Text="@L["Login_SignIn"]">
+            @if (!string.IsNullOrEmpty(_signInError))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3">@_signInError</MudAlert>
+            }
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_signInEmail"
+                              Label="@L["Login_Email"]"
+                              InputType="InputType.Email"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Email" />
+                <MudTextField @bind-Value="_signInPassword"
+                              Label="@L["Login_Password"]"
+                              InputType="@(_showSignInPassword ? InputType.Text : InputType.Password)"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@(_showSignInPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                              OnAdornmentClick="() => _showSignInPassword = !_showSignInPassword" />
+                <MudTextField @bind-Value="_signInServerUrl"
+                              Label="@L["Login_ServerUrl"]"
+                              InputType="InputType.Url"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Cloud" />
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           FullWidth="true"
+                           Disabled="_working"
+                           OnClick="DoSignIn">
+                    @(_working ? "..." : L["Login_SignIn"])
+                </MudButton>
+            </MudStack>
+        </MudTabPanel>
+
+        @*── Register ──*@
+        <MudTabPanel Text="@L["Login_Register"]">
+            @if (!string.IsNullOrEmpty(_registerError))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3">@_registerError</MudAlert>
+            }
+            @if (!string.IsNullOrEmpty(_registerSuccess))
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-3">@_registerSuccess</MudAlert>
+            }
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_regEmail"
+                              Label="@L["Login_Email"]"
+                              InputType="InputType.Email"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Email" />
+                <MudTextField @bind-Value="_regPassword"
+                              Label="@L["Login_Password"]"
+                              InputType="@(_showRegPassword ? InputType.Text : InputType.Password)"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@(_showRegPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                              OnAdornmentClick="() => _showRegPassword = !_showRegPassword" />
+                <MudTextField @bind-Value="_regConfirmPassword"
+                              Label="@L["Login_ConfirmPassword"]"
+                              InputType="@(_showRegPassword ? InputType.Text : InputType.Password)"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@(_showRegPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                              OnAdornmentClick="() => _showRegPassword = !_showRegPassword" />
+                <MudTextField @bind-Value="_regServerUrl"
+                              Label="@L["Login_ServerUrl"]"
+                              InputType="InputType.Url"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Cloud" />
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           FullWidth="true"
+                           Disabled="_working"
+                           OnClick="DoRegister">
+                    @(_working ? "..." : L["Login_Register"])
+                </MudButton>
+            </MudStack>
+        </MudTabPanel>
+
+    </MudTabs>
+</MudPaper>
+
+@code {
+    string _signInEmail = "";
+    string _signInPassword = "";
+    string _signInServerUrl = "";
+    string _signInError = "";
+    bool _showSignInPassword;
+
+    string _regEmail = "";
+    string _regPassword = "";
+    string _regConfirmPassword = "";
+    string _regServerUrl = "";
+    string _registerError = "";
+    string _registerSuccess = "";
+    bool _showRegPassword;
+
+    bool _working;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (await AuthService.IsLoggedInAsync())
+            Nav.NavigateTo("/dashboard");
+
+        // Pre-fill saved server URL
+        _signInServerUrl = AuthService.ApiBaseUrl ?? "";
+        _regServerUrl = AuthService.ApiBaseUrl ?? "";
+    }
+
+    async Task DoSignIn()
+    {
+        _signInError = "";
+        if (string.IsNullOrWhiteSpace(_signInEmail) || string.IsNullOrWhiteSpace(_signInPassword))
+        {
+            _signInError = L["Login_InvalidCredentials"];
+            return;
+        }
+
+        _working = true;
+        try
+        {
+            AuthService.ApiBaseUrl = _signInServerUrl.Trim();
+            var ok = await AuthService.LoginAsync(_signInEmail.Trim(), _signInPassword);
+            if (ok)
+                Nav.NavigateTo("/dashboard");
+            else
+                _signInError = L["Login_InvalidCredentials"];
+        }
+        catch
+        {
+            _signInError = L["Login_Error"];
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
+
+    async Task DoRegister()
+    {
+        _registerError = "";
+        _registerSuccess = "";
+
+        if (string.IsNullOrWhiteSpace(_regEmail) || string.IsNullOrWhiteSpace(_regPassword))
+        {
+            _registerError = L["Login_InvalidCredentials"];
+            return;
+        }
+        if (_regPassword != _regConfirmPassword)
+        {
+            _registerError = L["Login_ConfirmPassword"];
+            return;
+        }
+
+        _working = true;
+        try
+        {
+            AuthService.ApiBaseUrl = _regServerUrl.Trim();
+            var ok = await AuthService.RegisterAsync(_regEmail.Trim(), _regPassword);
+            if (ok)
+            {
+                _registerSuccess = L["Login_RegisterSuccess"];
+                await Task.Delay(800);
+                Nav.NavigateTo("/dashboard");
+            }
+            else
+            {
+                _registerError = L["Login_Error"];
+            }
+        }
+        catch
+        {
+            _registerError = L["Login_Error"];
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
+}

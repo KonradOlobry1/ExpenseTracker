@@ -1,0 +1,20 @@
+# Keeps build context small and stops host build output leaking into the image,
+# which would otherwise shadow what the container builds.
+**/bin/
+**/obj/
+**/.vs/
+**/.git/
+**/*.user
+**/Properties/PublishProfiles/
+**/Properties/ServiceDependencies/
+
+# Local databases — never ship data in an image.
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# The MAUI app is not part of this image.
+ExpenseTracker/
+ExpenseTracker.Infrastructure/
+ExpenseTracker.Domain.Tests/
+ExpenseTracker.Api.Tests/

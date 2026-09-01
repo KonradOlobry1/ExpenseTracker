@@ -1,0 +1,17 @@
+@using ExpenseTracker.Components.Layout
+@using Microsoft.AspNetCore.Components.Authorization
+
+@* The shared pages live in ExpenseTracker.UI, and the web-only account pages live here, so
+   routing has to scan both assemblies. The RCL has its own Routes component for MAUI, which
+   scans only itself — this one replaces it on the web. *@
+<Router AppAssembly="typeof(Program).Assembly"
+        AdditionalAssemblies="new[] { typeof(ExpenseTracker.Components.Routes).Assembly }">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+            <NotAuthorized>
+                <RedirectToLogin />
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

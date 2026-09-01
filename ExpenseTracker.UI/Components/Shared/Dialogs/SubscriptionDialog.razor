@@ -1,0 +1,124 @@
+﻿@inject ICategoryService CategoryService
+@inject ICurrencyService CurrencyService
+@inject ILocalizationService L
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_valid">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Name"
+                                  Label="@L["Common_Name"]"
+                                  Required="true"
+                                  RequiredError="@L["Dlg_NameRequired"]" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="_model.Amount"
+                                     Label="@L["Common_Amount"]"
+                                     Format="F2"
+                                     Required="true"
+                                     Min="0.01m"
+                                     RequiredError="@L["Dlg_AmountRequired"]"
+                                     Adornment="Adornment.Start"
+                                     AdornmentText="@CurrencyService.Selected.Symbol" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.BillingCycle" Label="@L["Dlg_BillingCycle"]" Required="true">
+                        @foreach (BillingCycle cycle in Enum.GetValues<BillingCycle>())
+                        {
+                            <MudSelectItem Value="cycle">@L.Cycle(cycle)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="py-1">
+                        @L["Dlg_MonthlyEquiv"] <strong>@CurrencyService.Format(PredictionEngine.ToMonthlyEquivalent(_model.Amount, _model.BillingCycle))</strong>
+                    </MudAlert>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect @bind-Value="_model.CategoryId" Label="@L["Common_Category"]" Required="true">
+                        @foreach (var cat in _categories)
+                        {
+                            <MudSelectItem Value="cat.Id">@L.Category(cat.Name)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_startDate" Label="@L["Dlg_StartDate"]" Required="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_endDate" Label="@L["Dlg_EndDate"]" Clearable="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.Url" Label="@L["Dlg_Website"]" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes" Label="@L["Common_Notes"]" Lines="2" AutoGrow="true" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudSwitch @bind-Value="_model.IsActive" Label="@L["Common_Active"]" Color="Color.Primary" />
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L["Common_Cancel"]</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Submit" Disabled="!_valid">@L["Common_Save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter] public Subscription? Subscription { get; set; }
+
+    MudForm _form = null!;
+    bool _valid;
+    List<Category> _categories = [];
+    Subscription _model = new();
+    DateTime? _startDate;
+    DateTime? _endDate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = L.SortCategories(await CategoryService.GetAllAsync());
+
+        if (Subscription is not null)
+        {
+            _model = new Subscription
+            {
+                Id          = Subscription.Id,
+                Name        = Subscription.Name,
+                Amount      = Subscription.Amount,
+                BillingCycle = Subscription.BillingCycle,
+                StartDate   = Subscription.StartDate,
+                EndDate     = Subscription.EndDate,
+                CategoryId  = Subscription.CategoryId,
+                Notes       = Subscription.Notes,
+                Url         = Subscription.Url,
+                IsActive    = Subscription.IsActive,
+                CreatedAt   = Subscription.CreatedAt
+            };
+        }
+        else if (_categories.Count > 0)
+        {
+            _model.CategoryId = _categories[0].Id;
+        }
+
+        _startDate = _model.StartDate;
+        _endDate = _model.EndDate;
+    }
+
+    void Cancel() => MudDialog.Cancel();
+
+    async Task Submit()
+    {
+        await _form.Validate();
+        if (!_valid) return;
+
+        if (_startDate.HasValue) _model.StartDate = _startDate.Value;
+        _model.EndDate = _endDate;
+
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+}

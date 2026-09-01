@@ -1,0 +1,124 @@
+﻿@page "/income"
+@using IncomeEntity = ExpenseTracker.Domain.Entities.Income
+@inject IIncomeService IncomeService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject ICurrencyService CurrencyService
+@inject ILocalizationService L
+
+<MudText Typo="Typo.h5" Class="mb-4">@L["Income_Title"]</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-2" />
+}
+
+<MudDataGrid T="IncomeEntity" Items="_incomes" SortMode="SortMode.Multiple" Hover="true" Dense="true">
+    <Columns>
+        <PropertyColumn Property="@((IncomeEntity i) => i.Description)" Title="@L["Common_Description"]" />
+        <TemplateColumn Title="@L["Dlg_BillingCycle"]" SortBy="@((IncomeEntity i) => i.BillingCycle)">
+            <CellTemplate>@L.Cycle(context.Item.BillingCycle)</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Amount"]" SortBy="@((IncomeEntity i) => i.Amount)">
+            <CellTemplate>
+                <MudText Color="Color.Success">@CurrencyService.Format(context.Item.Amount)</MudText>
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Subs_MonthlyEquiv"]" SortBy="@((IncomeEntity i) => PredictionEngine.ToMonthlyEquivalent(i.Amount, i.BillingCycle))">
+            <CellTemplate>
+                @CurrencyService.Format(PredictionEngine.ToMonthlyEquivalent(context.Item.Amount, context.Item.BillingCycle))
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Status"]" SortBy="@((IncomeEntity i) => i.IsActive)">
+            <CellTemplate>
+                <MudChip T="string"
+                         Size="Size.Small"
+                         Color="@(context.Item.IsActive ? Color.Success : Color.Default)"
+                         Text="@(context.Item.IsActive ? L["Common_Active"] : L["Common_Inactive"])" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Actions"]" Sortable="false">
+            <CellTemplate>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                               Size="Size.Small"
+                               OnClick="() => OpenEditDialog(context.Item)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                               Size="Size.Small"
+                               Color="Color.Error"
+                               OnClick="() => DeleteIncome(context.Item)" />
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>@L["Income_NoIncome"]</MudText>
+    </NoRecordsContent>
+    <PagerContent>
+        <MudDataGridPager T="IncomeEntity" />
+    </PagerContent>
+</MudDataGrid>
+
+<MudPaper Class="pa-3 mt-2" Elevation="0">
+    <MudText>
+        <strong>@L["Income_MonthlyTotal"] @CurrencyService.Format(_incomes.Where(i => i.IsActive).Sum(i => PredictionEngine.ToMonthlyEquivalent(i.Amount, i.BillingCycle)))</strong>
+    </MudText>
+</MudPaper>
+
+<MudFab Color="Color.Success"
+        StartIcon="@Icons.Material.Filled.Add"
+        Style="position:fixed; bottom:24px; right:24px;"
+        OnClick="OpenAddDialog" />
+
+@code {
+    List<IncomeEntity> _incomes = [];
+    bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await LoadIncomes();
+
+    async Task LoadIncomes()
+    {
+        _loading = true;
+        StateHasChanged();
+        _incomes = await IncomeService.GetAllAsync();
+        _loading = false;
+    }
+
+    async Task OpenAddDialog()
+    {
+        var dialog = await DialogService.ShowAsync<IncomeDialog>(L["Income_AddIncome"]);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: IncomeEntity income })
+        {
+            await IncomeService.CreateAsync(income);
+            Snackbar.Add(L["Income_Added"], Severity.Success);
+            await LoadIncomes();
+        }
+    }
+
+    async Task OpenEditDialog(IncomeEntity income)
+    {
+        var parameters = new DialogParameters<IncomeDialog> { { x => x.Income, income } };
+        var dialog = await DialogService.ShowAsync<IncomeDialog>(L["Income_EditIncome"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: IncomeEntity updated })
+        {
+            await IncomeService.UpdateAsync(updated);
+            Snackbar.Add(L["Income_Updated"], Severity.Success);
+            await LoadIncomes();
+        }
+    }
+
+    async Task DeleteIncome(IncomeEntity income)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            L["Income_DeleteIncome"],
+            L.Format("Income_DeleteConfirm", income.Description),
+            yesText: L["Common_Delete"],
+            cancelText: L["Common_Cancel"]);
+        if (confirmed == true)
+        {
+            await IncomeService.DeleteAsync(income.Id);
+            Snackbar.Add(L["Income_Deleted"], Severity.Info);
+            await LoadIncomes();
+        }
+    }
+}

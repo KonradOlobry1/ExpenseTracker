@@ -1,0 +1,59 @@
+@inject ISubscriptionService SubscriptionService
+@inject ILocalizationService L
+
+<MudPaper Class="pa-4" Elevation="2">
+    <MudText Typo="Typo.h6" Class="mb-3">@L["Chart_UpcomingTitle"]</MudText>
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_series.Count == 0)
+    {
+        <MudText Color="Color.Secondary">@L["Chart_NoActiveSubs"]</MudText>
+    }
+    else
+    {
+        <MudChart ChartType="ChartType.Bar"
+                  ChartSeries="_series"
+                  XAxisLabels="_labels"
+                  Width="100%"
+                  Height="260px"
+                  ChartOptions="@ChartDefaults.Money(4)" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">
+            @L["Chart_BarsNote"]
+        </MudText>
+    }
+</MudPaper>
+
+@code {
+    List<ChartSeries> _series = [];
+    string[] _labels = [];
+    bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var subs = await SubscriptionService.GetAllAsync(activeOnly: true);
+
+        const int weeks = 13;
+        var today = DateTime.Today;
+
+        _series = subs.Select(s =>
+        {
+            var data = new double[weeks];
+            for (int w = 0; w < weeks; w++)
+            {
+                var weekStart = today.AddDays(w * 7);
+                var weekEnd   = weekStart.AddDays(6);
+                var hits = PredictionEngine.OccurrencesInRange(s.StartDate, s.BillingCycle, weekStart, weekEnd);
+                data[w] = hits.Count > 0 ? (double)s.Amount : 0.0;
+            }
+            return new ChartSeries { Name = s.Name, Data = data };
+        }).Where(cs => cs.Data.Any(d => d > 0)).ToList();
+
+        _labels = Enumerable.Range(0, weeks)
+            .Select(w => today.AddDays(w * 7).ToString("MMM d"))
+            .ToArray();
+
+        _loading = false;
+    }
+}

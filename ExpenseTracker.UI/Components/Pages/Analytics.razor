@@ -1,0 +1,133 @@
+@page "/analytics"
+@inject IExpenseService ExpenseService
+@inject ICurrencyService CurrencyService
+@inject ILocalizationService L
+
+<MudText Typo="Typo.h5" Class="mb-4">@L["Analytics_Title"]</MudText>
+
+<MudGrid Justify="Justify.FlexStart" Class="mb-4">
+    <MudItem xs="12" sm="4" md="3">
+        <MudSelect Value="_year" Label="@L["Analytics_Year"]" ValueChanged="OnYearChanged" T="int">
+            @foreach (var y in _availableYears)
+            {
+                <MudSelectItem Value="y">@y</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+</MudGrid>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-4" />
+}
+
+<MudPaper Class="pa-4 mb-4" Elevation="2">
+    <MudText Typo="Typo.h6" Class="mb-3">@L.Format("Analytics_MonthlySpending", _year)</MudText>
+    <MudChart ChartType="ChartType.Bar"
+              ChartSeries="_monthlySeries"
+              XAxisLabels="_monthLabels"
+              Width="100%"
+              Height="320px"
+              ChartOptions="@ChartDefaults.Money()" />
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="2">
+    <MudText Typo="Typo.h6" Class="mb-3">@L["Analytics_YoY"]</MudText>
+    <MudChart ChartType="ChartType.Line"
+              ChartSeries="_yoySeries"
+              XAxisLabels="_monthLabels"
+              Width="100%"
+              Height="280px"
+              ChartOptions="@ChartDefaults.Money()" />
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="2">
+    <MudText Typo="Typo.h6" Class="mb-3">@L.Format("Analytics_CategoryBreakdown", _year)</MudText>
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr>
+                <th>@L["Common_Category"]</th>
+                <th>@L["Common_Total"]</th>
+                <th>@L["Analytics_PercentOfYear"]</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in _categoryBreakdown.OrderByDescending(kv => kv.Value))
+            {
+                <tr>
+                    <td>@L.Category(item.Key)</td>
+                    <td>@CurrencyService.Format(item.Value)</td>
+                    <td>@(_yearTotal > 0 ? (item.Value / _yearTotal * 100).ToString("F1") + "%" : "—")</td>
+                </tr>
+            }
+            @if (_categoryBreakdown.Count == 0)
+            {
+                <tr>
+                    <td colspan="3">
+                        <MudText Color="Color.Secondary">@L.Format("Analytics_NoData", _year)</MudText>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+</MudPaper>
+
+@code {
+    int _year = DateTime.Today.Year;
+    List<int> _availableYears = [];
+    bool _loading = true;
+
+    List<ChartSeries> _monthlySeries = [];
+    List<ChartSeries> _yoySeries = [];
+    string[] _monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    Dictionary<string, decimal> _categoryBreakdown = [];
+    decimal _yearTotal;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _availableYears = Enumerable.Range(DateTime.Today.Year - 4, 5).Reverse().ToList();
+        await LoadData();
+    }
+
+    async Task OnYearChanged(int year)
+    {
+        _year = year;
+        await LoadData();
+    }
+
+    async Task LoadData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        var currentTotals = await ExpenseService.GetMonthlyTotalsAsync(_year);
+        var prevTotals    = await ExpenseService.GetMonthlyTotalsAsync(_year - 1);
+
+        var currentData = Enumerable.Range(1, 12)
+            .Select(m => (double)currentTotals.GetValueOrDefault(m, 0))
+            .ToArray();
+        var prevData = Enumerable.Range(1, 12)
+            .Select(m => (double)prevTotals.GetValueOrDefault(m, 0))
+            .ToArray();
+
+        _monthlySeries = [new ChartSeries { Name = _year.ToString(), Data = currentData }];
+        _yoySeries =
+        [
+            new ChartSeries { Name = _year.ToString(),       Data = currentData },
+            new ChartSeries { Name = (_year - 1).ToString(), Data = prevData    },
+        ];
+
+        _yearTotal = currentTotals.Values.Sum();
+
+        var allMonthBreakdowns = await Task.WhenAll(
+            Enumerable.Range(1, 12).Select(m => ExpenseService.GetCategoryTotalsAsync(_year, m)));
+
+        _categoryBreakdown = allMonthBreakdowns
+            .SelectMany(d => d)
+            .GroupBy(kv => kv.Key)
+            .ToDictionary(g => g.Key, g => g.Sum(kv => kv.Value));
+
+        _loading = false;
+    }
+}

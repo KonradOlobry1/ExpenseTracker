@@ -1,0 +1,9 @@
+@inherits LayoutComponentBase
+
+@* The shared MainLayout injects sync and payment services and assumes a signed-in user, so
+   the sign-in page uses a bare layout with just the MudBlazor providers it needs. *@
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudSnackbarProvider />
+
+@Body

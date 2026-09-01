@@ -1,0 +1,129 @@
+@page "/categories"
+@inject ICategoryService CategoryService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject ILocalizationService L
+
+<MudText Typo="Typo.h5" Class="mb-4">@L["Categories_Title"]</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-2" />
+}
+
+<MudDataGrid T="Category" Items="_categories" SortMode="SortMode.None" Hover="true" Dense="true">
+    <Columns>
+        <TemplateColumn Title="@L["Common_Name"]">
+            <CellTemplate>
+                <MudChip T="string"
+                         Size="Size.Small"
+                         Icon="@CategoryDialog.ResolveIcon(context.Item.Icon)"
+                         Style="@($"background-color:{context.Item.Color}22; color:{context.Item.Color}")"
+                         Text="@L.Category(context.Item.Name)" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Cat_Color"]">
+            <CellTemplate>
+                <MudText Typo="Typo.caption">@context.Item.Color</MudText>
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Status"]">
+            <CellTemplate>
+                @if (context.Item.IsSystem)
+                {
+                    <MudChip T="string" Size="Size.Small" Text="@L["Categories_Builtin"]" />
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Actions"]" Sortable="false">
+            <CellTemplate>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                               Size="Size.Small"
+                               OnClick="() => OpenEditDialog(context.Item)" />
+                @if (context.Item.IsSystem)
+                {
+                    @* Built-in categories are rejected by the repository, so the control is
+                       disabled rather than failing after the click. *@
+                    <MudTooltip Text="@L["Categories_BuiltinLocked"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Size="Size.Small"
+                                       Disabled="true" />
+                    </MudTooltip>
+                }
+                else
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                   Size="Size.Small"
+                                   Color="Color.Error"
+                                   OnClick="() => DeleteCategory(context.Item)" />
+                }
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>@L["Categories_None"]</MudText>
+    </NoRecordsContent>
+</MudDataGrid>
+
+<MudFab Color="Color.Primary"
+        StartIcon="@Icons.Material.Filled.Add"
+        Style="position:fixed; bottom:24px; right:24px;"
+        OnClick="OpenAddDialog" />
+
+@code {
+    List<Category> _categories = [];
+    bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await LoadCategories();
+
+    async Task LoadCategories()
+    {
+        _loading = true;
+        StateHasChanged();
+        _categories = L.SortCategories(await CategoryService.GetAllAsync());
+        _loading = false;
+    }
+
+    async Task OpenAddDialog()
+    {
+        var dialog = await DialogService.ShowAsync<CategoryDialog>(L["Categories_Add"]);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Category category })
+        {
+            await CategoryService.CreateAsync(category);
+            Snackbar.Add(L["Categories_Added"], Severity.Success);
+            await LoadCategories();
+        }
+    }
+
+    async Task OpenEditDialog(Category category)
+    {
+        var parameters = new DialogParameters<CategoryDialog> { { x => x.Category, category } };
+        var dialog = await DialogService.ShowAsync<CategoryDialog>(L["Categories_Edit"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Category updated })
+        {
+            await CategoryService.UpdateAsync(updated);
+            Snackbar.Add(L["Categories_Updated"], Severity.Success);
+            await LoadCategories();
+        }
+    }
+
+    async Task DeleteCategory(Category category)
+    {
+        // Deleting is a soft delete, and the query filters hide rows whose category is
+        // deleted — so the expenses survive but disappear from the UI. The message says so.
+        var confirmed = await DialogService.ShowMessageBox(
+            L["Categories_Delete"],
+            L.Format("Categories_DeleteConfirm", L.Category(category.Name)),
+            yesText: L["Common_Delete"],
+            cancelText: L["Common_Cancel"]);
+
+        if (confirmed == true)
+        {
+            await CategoryService.DeleteAsync(category.Id);
+            Snackbar.Add(L["Categories_Deleted"], Severity.Info);
+            await LoadCategories();
+        }
+    }
+}

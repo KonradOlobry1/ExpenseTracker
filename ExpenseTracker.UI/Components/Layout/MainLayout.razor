@@ -1,0 +1,164 @@
+﻿@inherits LayoutComponentBase
+@inject IThemeService ThemeService
+@inject ILocalizationService L
+@inject IAuthService AuthService
+@inject ISyncService SyncService
+@inject IPaymentCaptureService PaymentCapture
+@inject IDialogService DialogService
+@inject IExpenseService ExpenseService
+@implements IDisposable
+
+<MudThemeProvider Theme="_theme" IsDarkMode="ThemeService.IsDarkMode" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+<MudPopoverProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Color="Color.Primary">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                       Color="Color.Inherit"
+                       Edge="Edge.Start"
+                       OnClick="ToggleDrawer" />
+        <MudText Typo="Typo.h6" Class="ml-2">@L["AppTitle"]</MudText>
+        <MudSpacer />
+        <MudTooltip Text="@(ThemeService.IsDarkMode ? L["Theme_SwitchToLight"] : L["Theme_SwitchToDark"])">
+            <MudIconButton Icon="@(ThemeService.IsDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                           Color="Color.Inherit"
+                           OnClick="ThemeService.Toggle" />
+        </MudTooltip>
+        @if (_isLoggedIn)
+        {
+            <MudTooltip Text="@(_isSyncing ? L["Settings_Syncing"] : _lastSyncText)">
+                <MudIconButton Icon="@(_isSyncing ? Icons.Material.Filled.Sync : Icons.Material.Filled.CloudDone)"
+                               Color="Color.Inherit"
+                               Class="@(_isSyncing ? "sync-spin" : "")"
+                               OnClick="SyncNow" />
+            </MudTooltip>
+        }
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <MudNavMenu Class="mt-2">
+            <MudNavLink Href="/dashboard" Icon="@Icons.Material.Filled.Dashboard" Match="NavLinkMatch.All">
+                @L["Nav_Dashboard"]
+            </MudNavLink>
+            <MudNavLink Href="/expenses" Icon="@Icons.Material.Filled.Receipt">
+                @L["Nav_Expenses"]
+            </MudNavLink>
+            <MudNavLink Href="/income" Icon="@Icons.Material.Filled.Payments">
+                @L["Nav_Income"]
+            </MudNavLink>
+            <MudNavLink Href="/subscriptions" Icon="@Icons.Material.Filled.Repeat">
+                @L["Nav_Subscriptions"]
+            </MudNavLink>
+            <MudNavLink Href="/categories" Icon="@Icons.Material.Filled.Label">
+                @L["Nav_Categories"]
+            </MudNavLink>
+            <MudNavLink Href="/analytics" Icon="@Icons.Material.Filled.BarChart">
+                @L["Nav_Analytics"]
+            </MudNavLink>
+            <MudDivider Class="my-2" />
+            <MudNavLink Href="/settings" Icon="@Icons.Material.Filled.Settings">
+                @L["Nav_Settings"]
+            </MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="pa-4 mt-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    bool _drawerOpen = true;
+    bool _isLoggedIn;
+    bool _isSyncing;
+    string _lastSyncText = "";
+
+    readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary          = "#5C6BC0",
+            Secondary        = "#26A69A",
+            AppbarBackground = "#5C6BC0",
+            Background       = "#F5F5F5",
+            Surface          = "#FFFFFF",
+            DrawerBackground = "#FFFFFF",
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary          = "#7986CB",
+            Secondary        = "#4DB6AC",
+            AppbarBackground = "#1E1E2E",
+            Background       = "#121212",
+            Surface          = "#1E1E2E",
+            DrawerBackground = "#1A1A2E",
+        }
+    };
+
+    void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    protected override void OnInitialized()
+    {
+        ThemeService.OnChanged += Refresh;
+        L.OnChanged += Refresh;
+        SyncService.SyncStateChanged += OnSyncStateChanged;
+
+        if (PaymentCapture.IsAvailable)
+            PaymentCapture.PaymentDetected += OnPaymentDetected;
+
+        _ = LoadAuthStateAsync();
+    }
+
+    async Task LoadAuthStateAsync()
+    {
+        _isLoggedIn = await AuthService.IsLoggedInAsync();
+        _isSyncing = SyncService.IsSyncing;
+        var last = SyncService.LastSyncTime;
+        _lastSyncText = last.HasValue ? last.Value.ToLocalTime().ToString("g") : L["Settings_NeverSynced"];
+        await InvokeAsync(StateHasChanged);
+    }
+
+    void OnSyncStateChanged()
+    {
+        _isSyncing = SyncService.IsSyncing;
+        var last = SyncService.LastSyncTime;
+        _lastSyncText = last.HasValue ? last.Value.ToLocalTime().ToString("g") : L["Settings_NeverSynced"];
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    async Task SyncNow() => await SyncService.SyncAsync();
+
+    async void OnPaymentDetected(decimal amount, string merchant)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            L["Sync_PaymentDetected"],
+            string.Format(L["Sync_PaymentPrompt"], amount.ToString("C"), merchant),
+            yesText: L["Sync_AddExpense"],
+            cancelText: L["Sync_Dismiss"]);
+
+        if (confirmed == true)
+        {
+            var prefilled = new Expense { Amount = amount, Description = merchant, Date = DateTime.Today };
+            var parameters = new DialogParameters<ExpenseDialog> { { x => x.Expense, prefilled } };
+            var dialog = await DialogService.ShowAsync<ExpenseDialog>(L["Expenses_AddExpense"], parameters);
+            var dialogResult = await dialog.Result;
+            if (dialogResult is { Canceled: false, Data: Expense expense })
+                await ExpenseService.CreateAsync(expense);
+        }
+    }
+
+    void Refresh() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        ThemeService.OnChanged -= Refresh;
+        L.OnChanged -= Refresh;
+        SyncService.SyncStateChanged -= OnSyncStateChanged;
+        if (PaymentCapture.IsAvailable)
+            PaymentCapture.PaymentDetected -= OnPaymentDetected;
+    }
+}

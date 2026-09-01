@@ -1,0 +1,160 @@
+@page "/expenses"
+@inject IExpenseService ExpenseService
+@inject ICategoryService CategoryService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject ICurrencyService CurrencyService
+@inject ILocalizationService L
+
+<MudText Typo="Typo.h5" Class="mb-4">@L["Expenses_Title"]</MudText>
+
+<MudPaper Class="pa-3 mb-4" Elevation="1">
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudDatePicker @bind-Date="_filterFrom" Label="@L["Expenses_From"]" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudDatePicker @bind-Date="_filterTo" Label="@L["Expenses_To"]" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect @bind-Value="_filterCategoryId" Label="@L["Common_Category"]" Clearable="true">
+                @foreach (var cat in _categories)
+                {
+                    <MudSelectItem Value="(int?)cat.Id">@L.Category(cat.Name)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField @bind-Value="_filterSearch"
+                          Label="@L["Common_Search"]"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Clearable="true" />
+        </MudItem>
+        <MudItem xs="12">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyFilter">
+                @L["Expenses_ApplyFilter"]
+            </MudButton>
+            <MudButton Variant="Variant.Text" OnClick="ClearFilter" Class="ml-2">
+                @L["Common_Clear"]
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudDataGrid T="Expense" @ref="_grid" ServerData="LoadServerData" SortMode="SortMode.None" Hover="true" Dense="true">
+    <Columns>
+        <PropertyColumn Property="e => e.Date" Title="@L["Common_Date"]" Format="dd MMM yyyy" />
+        <PropertyColumn Property="e => e.Description" Title="@L["Common_Description"]" />
+        <TemplateColumn Title="@L["Common_Category"]">
+            <CellTemplate>
+                <MudChip T="string"
+                         Size="Size.Small"
+                         Style="@($"background-color:{context.Item.Category?.Color}22; color:{context.Item.Category?.Color}")"
+                         Text="@L.Category(context.Item.Category?.Name)" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Amount"]">
+            <CellTemplate>@CurrencyService.Format(context.Item.Amount)</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Actions"]" Sortable="false">
+            <CellTemplate>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                               Size="Size.Small"
+                               OnClick="() => OpenEditDialog(context.Item)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                               Size="Size.Small"
+                               Color="Color.Error"
+                               OnClick="() => DeleteExpense(context.Item)" />
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>@L["Expenses_NoExpenses"]</MudText>
+    </NoRecordsContent>
+    <PagerContent>
+        <MudDataGridPager T="Expense" />
+    </PagerContent>
+</MudDataGrid>
+
+<MudPaper Class="pa-3 mt-2" Elevation="0">
+    <MudText><strong>@L["Common_Total"] @CurrencyService.Format(_filteredTotal)</strong></MudText>
+</MudPaper>
+
+<MudFab Color="Color.Primary"
+        StartIcon="@Icons.Material.Filled.Add"
+        Style="position:fixed; bottom:24px; right:24px;"
+        OnClick="OpenAddDialog" />
+
+@code {
+    MudDataGrid<Expense>? _grid;
+    List<Category> _categories = [];
+    decimal _filteredTotal;
+
+    DateTime? _filterFrom;
+    DateTime? _filterTo;
+    int? _filterCategoryId;
+    string? _filterSearch;
+
+    protected override async Task OnInitializedAsync()
+        => _categories = L.SortCategories(await CategoryService.GetAllAsync());
+
+    async Task<GridData<Expense>> LoadServerData(GridState<Expense> state)
+    {
+        var filter = new ExpenseFilter(_filterFrom, _filterTo, _filterCategoryId, null, null, _filterSearch);
+        var result = await ExpenseService.GetPagedAsync(filter, state.Page, state.PageSize);
+        _filteredTotal = await ExpenseService.GetFilteredSumAsync(filter);
+        return new GridData<Expense> { Items = result.Items, TotalItems = result.TotalCount };
+    }
+
+    async Task ApplyFilter() => await _grid!.ReloadServerData();
+
+    async Task ClearFilter()
+    {
+        _filterFrom = null;
+        _filterTo = null;
+        _filterCategoryId = null;
+        _filterSearch = null;
+        await _grid!.ReloadServerData();
+    }
+
+    async Task OpenAddDialog()
+    {
+        var dialog = await DialogService.ShowAsync<ExpenseDialog>(L["Expenses_AddExpense"]);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Expense expense })
+        {
+            await ExpenseService.CreateAsync(expense);
+            Snackbar.Add(L["Expenses_Added"], Severity.Success);
+            await _grid!.ReloadServerData();
+        }
+    }
+
+    async Task OpenEditDialog(Expense expense)
+    {
+        var parameters = new DialogParameters<ExpenseDialog> { { x => x.Expense, expense } };
+        var dialog = await DialogService.ShowAsync<ExpenseDialog>(L["Expenses_EditExpense"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Expense updated })
+        {
+            await ExpenseService.UpdateAsync(updated);
+            Snackbar.Add(L["Expenses_Updated"], Severity.Success);
+            await _grid!.ReloadServerData();
+        }
+    }
+
+    async Task DeleteExpense(Expense expense)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            L["Expenses_DeleteExpense"],
+            L.Format("Expenses_DeleteConfirm", expense.Description),
+            yesText: L["Common_Delete"],
+            cancelText: L["Common_Cancel"]);
+        if (confirmed == true)
+        {
+            await ExpenseService.DeleteAsync(expense.Id);
+            Snackbar.Add(L["Expenses_Deleted"], Severity.Info);
+            await _grid!.ReloadServerData();
+        }
+    }
+}

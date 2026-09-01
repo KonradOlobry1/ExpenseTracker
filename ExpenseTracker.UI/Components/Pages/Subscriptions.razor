@@ -1,0 +1,175 @@
+﻿@page "/subscriptions"
+@inject ISubscriptionService SubscriptionService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject ICurrencyService CurrencyService
+@inject ILocalizationService L
+
+<MudText Typo="Typo.h5" Class="mb-4">@L["Subs_Title"]</MudText>
+
+<MudGrid Class="mb-4">
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-3" Elevation="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@L["Subs_BurnRate"]</MudText>
+            <MudText Typo="Typo.h5">@CurrencyService.Format(_monthlyTotal)</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-3" Elevation="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@L["Subs_ActiveSubs"]</MudText>
+            <MudText Typo="Typo.h5">@_subscriptions.Count(s => s.IsActive)</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-3" Elevation="2">
+            <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@L["Subs_NextDue"]</MudText>
+            <MudText Typo="Typo.h6">@(_nextDueName ?? "—")</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Tertiary">
+                @(_nextDueDate?.ToString("dd MMM yyyy") ?? string.Empty)
+            </MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<MudGrid Class="mb-4">
+    <MudItem xs="12">
+        <SubscriptionTimeline @ref="_timeline" />
+    </MudItem>
+</MudGrid>
+
+<MudSwitch @bind-Value="_showInactive" Label="@L["Subs_ShowInactive"]" Color="Color.Default" Class="mb-2" />
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-2" />
+}
+
+<MudDataGrid T="Subscription" Items="_displayedSubscriptions" Hover="true" Dense="true">
+    <Columns>
+        <PropertyColumn Property="s => s.Name" Title="@L["Common_Name"]" />
+        <TemplateColumn Title="@L["Common_Category"]">
+            <CellTemplate>
+                <MudChip T="string" Size="Size.Small"
+                         Style="@($"background-color:{context.Item.Category?.Color}22; color:{context.Item.Category?.Color}")"
+                         Text="@L.Category(context.Item.Category?.Name)" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Amount"]" SortBy="@(s => s.Amount)">
+            <CellTemplate>@CurrencyService.Format(context.Item.Amount)</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Subs_Cycle"]" SortBy="@(s => s.BillingCycle)">
+            <CellTemplate>@L.Cycle(context.Item.BillingCycle)</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Subs_MonthlyEquiv"]">
+            <CellTemplate>
+                @CurrencyService.Format(PredictionEngine.ToMonthlyEquivalent(context.Item.Amount, context.Item.BillingCycle))
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Subs_NextPayment"]">
+            <CellTemplate>
+                @(context.Item.NextPaymentDate?.ToString("dd MMM yyyy") ?? "—")
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Status"]">
+            <CellTemplate>
+                <MudChip T="string" Size="Size.Small"
+                         Color="@(context.Item.IsActive ? Color.Success : Color.Default)"
+                         Text="@(context.Item.IsActive ? L["Common_Active"] : L["Common_Inactive"])" />
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="@L["Common_Actions"]" Sortable="false">
+            <CellTemplate>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                               OnClick="() => OpenEditDialog(context.Item)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               Color="Color.Error"
+                               OnClick="() => DeleteSubscription(context.Item)" />
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>@L["Subs_NoSubs"]</MudText>
+    </NoRecordsContent>
+    <PagerContent>
+        <MudDataGridPager T="Subscription" />
+    </PagerContent>
+</MudDataGrid>
+
+<MudFab Color="Color.Primary"
+        StartIcon="@Icons.Material.Filled.Add"
+        Style="position:fixed; bottom:24px; right:24px;"
+        OnClick="OpenAddDialog" />
+
+@code {
+    List<Subscription> _subscriptions = [];
+    bool _loading = true;
+    bool _showInactive;
+    decimal _monthlyTotal;
+    string? _nextDueName;
+    DateTime? _nextDueDate;
+    SubscriptionTimeline? _timeline;
+
+    IEnumerable<Subscription> _displayedSubscriptions =>
+        _showInactive ? _subscriptions : _subscriptions.Where(s => s.IsActive);
+
+    protected override async Task OnInitializedAsync() => await LoadSubscriptions();
+
+    async Task LoadSubscriptions()
+    {
+        _loading = true;
+        StateHasChanged();
+        _subscriptions = await SubscriptionService.GetAllAsync(activeOnly: false);
+        _monthlyTotal = _subscriptions
+            .Where(s => s.IsActive)
+            .Sum(s => PredictionEngine.ToMonthlyEquivalent(s.Amount, s.BillingCycle));
+
+        var next = _subscriptions
+            .Where(s => s.IsActive && s.NextPaymentDate.HasValue)
+            .OrderBy(s => s.NextPaymentDate)
+            .FirstOrDefault();
+        _nextDueName = next?.Name;
+        _nextDueDate = next?.NextPaymentDate;
+
+        _loading = false;
+    }
+
+    async Task OpenAddDialog()
+    {
+        var dialog = await DialogService.ShowAsync<SubscriptionDialog>(L["Subs_AddSub"]);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Subscription sub })
+        {
+            await SubscriptionService.CreateAsync(sub);
+            Snackbar.Add(L["Subs_Added"], Severity.Success);
+            await LoadSubscriptions();
+        }
+    }
+
+    async Task OpenEditDialog(Subscription subscription)
+    {
+        var parameters = new DialogParameters<SubscriptionDialog> { { x => x.Subscription, subscription } };
+        var dialog = await DialogService.ShowAsync<SubscriptionDialog>(L["Subs_EditSub"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Subscription updated })
+        {
+            await SubscriptionService.UpdateAsync(updated);
+            Snackbar.Add(L["Subs_Updated"], Severity.Success);
+            await LoadSubscriptions();
+        }
+    }
+
+    async Task DeleteSubscription(Subscription subscription)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            L["Subs_DeleteSub"],
+            L.Format("Subs_DeleteConfirm", subscription.Name),
+            yesText: L["Common_Delete"],
+            cancelText: L["Common_Cancel"]);
+        if (confirmed == true)
+        {
+            await SubscriptionService.DeleteAsync(subscription.Id);
+            Snackbar.Add(L["Subs_Deleted"], Severity.Info);
+            await LoadSubscriptions();
+        }
+    }
+}

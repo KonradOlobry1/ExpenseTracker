@@ -1,0 +1,47 @@
+﻿@inject IExpenseService ExpenseService
+@inject ILocalizationService L
+
+<MudPaper Class="pa-4" Elevation="2">
+    <MudText Typo="Typo.h6" Class="mb-3">@L["Chart_SpendingTitle"]</MudText>
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else
+    {
+        <MudChart ChartType="ChartType.Bar"
+                  ChartSeries="_series"
+                  XAxisLabels="_labels"
+                  Width="100%"
+                  Height="300px"
+                  ChartOptions="@ChartDefaults.Money(_max)" />
+    }
+</MudPaper>
+
+@code {
+    List<ChartSeries> _series = [];
+    double _max;
+    string[] _labels = [];
+    bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.Today;
+        var months = Enumerable.Range(0, 6).Select(i => today.AddMonths(-5 + i)).ToList();
+
+        // GetMonthlyTotalsAsync returns a whole year at a time, so query each distinct
+        // year once rather than re-querying per month.
+        var totalsByYear = new Dictionary<int, Dictionary<int, decimal>>();
+        foreach (var year in months.Select(m => m.Year).Distinct())
+            totalsByYear[year] = await ExpenseService.GetMonthlyTotalsAsync(year);
+
+        var data = months
+            .Select(m => (double)totalsByYear[m.Year].GetValueOrDefault(m.Month, 0))
+            .ToArray();
+
+        _max = data.Length > 0 ? data.Max() : 0;
+        _series = [new ChartSeries { Name = L["Chart_Expenses"], Data = data }];
+        _labels = months.Select(m => m.ToString("MMM yy")).ToArray();
+        _loading = false;
+    }
+}

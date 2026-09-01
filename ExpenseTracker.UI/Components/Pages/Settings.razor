@@ -1,0 +1,218 @@
+@page "/settings"
+@inject ICurrencyService CurrencyService
+@inject IThemeService ThemeService
+@inject ILocalizationService L
+@inject ISnackbar Snackbar
+@inject IAuthService AuthService
+@inject ISyncService SyncService
+@inject NavigationManager Nav
+@inject IPaymentCaptureService PaymentCapture
+@implements IDisposable
+
+<MudText Typo="Typo.h5" Class="mb-4">@L["Settings_Title"]</MudText>
+
+<MudStack Spacing="4" Style="max-width:480px">
+
+    @*── Account & Sync ──*@
+    <MudText Typo="Typo.h6" Class="mb-3">@L["Settings_Account"]</MudText>
+    <MudPaper Class="pa-4 mb-6" Elevation="2">
+        @if (!_isLoggedIn)
+        {
+            <MudText Color="Color.Secondary">@L["Settings_NotSignedIn"]</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
+                       OnClick='() => Nav.NavigateTo("/login")'>
+                @L["Settings_SignInButton"]
+            </MudButton>
+        }
+        else
+        {
+            <MudText><strong>@L["Settings_SignedInAs"]</strong> @_userEmail</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">
+                @L["Settings_LastSync"] @(_lastSyncDisplay)
+            </MudText>
+            <MudStack Row="true" Class="mt-3" Spacing="2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Sync"
+                           Disabled="_syncing"
+                           OnClick="DoSync">
+                    @(_syncing ? "..." : L["Settings_SyncNow"])
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                           OnClick="SignOut">
+                    @L["Settings_SignOut"]
+                </MudButton>
+            </MudStack>
+        }
+    </MudPaper>
+
+    @*── Appearance ──*@
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudText Typo="Typo.h6" Class="mb-3">@L["Settings_Appearance"]</MudText>
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudStack Spacing="0">
+                <MudText>@L["Theme_DarkMode"]</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @(ThemeService.IsDarkMode ? L["Theme_DarkActive"] : L["Theme_LightActive"])
+                </MudText>
+            </MudStack>
+            <MudSwitch T="bool"
+                       Value="ThemeService.IsDarkMode"
+                       ValueChanged="OnThemeToggle"
+                       Color="Color.Primary"
+                       ThumbIcon="@(ThemeService.IsDarkMode ? Icons.Material.Filled.DarkMode : Icons.Material.Filled.LightMode)" />
+        </MudStack>
+    </MudPaper>
+
+    @*── Language ──*@
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudText Typo="Typo.h6" Class="mb-3">@L["Settings_Language"]</MudText>
+        <MudSelect T="string"
+                   Value="@L.CurrentLanguage"
+                   ValueChanged="OnLanguageChanged"
+                   Label="@L["Settings_DisplayLanguage"]"
+                   Variant="Variant.Outlined"
+                   AdornmentIcon="@Icons.Material.Filled.Language"
+                   Adornment="Adornment.Start">
+            @foreach (var lang in L.Available)
+            {
+                <MudSelectItem Value="@lang.Code">
+                    <span Class="mr-2">@lang.Flag</span> @lang.Name
+                </MudSelectItem>
+            }
+        </MudSelect>
+    </MudPaper>
+
+    @*── Currency ──*@
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudText Typo="Typo.h6" Class="mb-3">@L["Settings_Currency"]</MudText>
+        <MudSelect T="string"
+                   Value="@CurrencyService.Selected.Code"
+                   ValueChanged="OnCurrencyChanged"
+                   Label="@L["Settings_DisplayCurrency"]"
+                   Variant="Variant.Outlined"
+                   AdornmentIcon="@Icons.Material.Filled.AttachMoney"
+                   Adornment="Adornment.Start">
+            @foreach (var c in CurrencyService.Available)
+            {
+                <MudSelectItem Value="@c.Code">
+                    <span style="font-weight:600; min-width:44px; display:inline-block">@c.Symbol</span>
+                    @c.Name (@c.Code)
+                </MudSelectItem>
+            }
+        </MudSelect>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2 d-block">
+            @L["Settings_Preview"] @CurrencyService.Format(1234.56m)
+        </MudText>
+    </MudPaper>
+
+    @*── Payment Detection (Android only) ──*@
+    @if (PaymentCapture.IsAvailable)
+    {
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-3">@L["Settings_PaymentDetect"]</MudText>
+            <MudStack Spacing="2">
+                <MudChip T="string"
+                         Color="@(PaymentCapture.IsPermissionGranted ? Color.Success : Color.Warning)"
+                         Icon="@(PaymentCapture.IsPermissionGranted ? Icons.Material.Filled.Check : Icons.Material.Filled.Warning)">
+                    @(PaymentCapture.IsPermissionGranted ? L["Settings_PaymentGranted"] : L["Settings_PaymentDenied"])
+                </MudChip>
+                @if (!PaymentCapture.IsPermissionGranted)
+                {
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.NotificationsActive"
+                               OnClick="() => PaymentCapture.OpenPermissionSettings()">
+                        @L["Settings_PaymentGrant"]
+                    </MudButton>
+                }
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @L["Settings_PaymentInfo"]
+                </MudText>
+            </MudStack>
+        </MudPaper>
+    }
+
+</MudStack>
+
+@code {
+    bool _isLoggedIn;
+    string _userEmail = "";
+    bool _syncing;
+    string _lastSyncDisplay = "";
+
+    void OnThemeToggle(bool _)
+    {
+        ThemeService.Toggle();
+        StateHasChanged();
+    }
+
+    void OnLanguageChanged(string code)
+    {
+        L.SetLanguage(code);
+        // StateHasChanged is triggered via the OnChanged subscription below
+    }
+
+    void OnCurrencyChanged(string code)
+    {
+        CurrencyService.SetCurrency(code);
+        Snackbar.Add($"{L["Settings_Currency"]}: {CurrencyService.Selected.Name}", Severity.Success);
+        StateHasChanged();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.OnChanged += Refresh;
+        SyncService.SyncStateChanged += OnSyncStateChanged;
+        await LoadAuthState();
+    }
+
+    async Task LoadAuthState()
+    {
+        _isLoggedIn = await AuthService.IsLoggedInAsync();
+        if (_isLoggedIn)
+        {
+            var user = await AuthService.GetCurrentUserAsync();
+            _userEmail = user?.Email ?? "";
+        }
+        _syncing = SyncService.IsSyncing;
+        var last = SyncService.LastSyncTime;
+        _lastSyncDisplay = last.HasValue
+            ? last.Value.ToLocalTime().ToString("g")
+            : L["Settings_NeverSynced"];
+    }
+
+    async Task DoSync()
+    {
+        _syncing = true;
+        StateHasChanged();
+        await SyncService.SyncAsync();
+        await LoadAuthState();
+        StateHasChanged();
+    }
+
+    async Task SignOut()
+    {
+        await AuthService.LogoutAsync();
+        _isLoggedIn = false;
+        _userEmail = "";
+        StateHasChanged();
+    }
+
+    void OnSyncStateChanged()
+    {
+        _syncing = SyncService.IsSyncing;
+        var last = SyncService.LastSyncTime;
+        _lastSyncDisplay = last.HasValue
+            ? last.Value.ToLocalTime().ToString("g")
+            : L["Settings_NeverSynced"];
+        InvokeAsync(StateHasChanged);
+    }
+
+    void Refresh() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        L.OnChanged -= Refresh;
+        SyncService.SyncStateChanged -= OnSyncStateChanged;
+    }
+}

@@ -1,0 +1,53 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.swp
+
+## Publish profiles and service dependencies.
+## Machine-specific, and they embed Azure subscription and resource IDs.
+**/Properties/PublishProfiles/
+**/Properties/ServiceDependencies/
+**/serviceDependencies*.json
+*.pubxml
+*.pubxml.user
+PublishProfiles/
+
+## Local databases — never commit data.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+## Secrets. User secrets live outside the repo by design; this is belt and braces so a
+## connection string or signing key can never be committed by accident.
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.p12
+*.snk
+
+## MAUI / Android
+*.keystore
+*.jks
+*.apk
+*.aab
+
+## macOS / Windows noise
+.DS_Store
+Thumbs.db
+
+## Claude Code local settings (machine-specific permissions)
+.claude/settings.local.json

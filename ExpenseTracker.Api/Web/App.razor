@@ -1,0 +1,43 @@
+@using Microsoft.AspNetCore.Components.Endpoints
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="icon" href="data:," />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet" />
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link href="app.css" rel="stylesheet" />
+    <HeadOutlet @rendermode="PageRenderMode" />
+</head>
+<body>
+    <WebRoutes @rendermode="PageRenderMode" />
+    <script>
+        // Preference writes happen inside a live circuit, which cannot set response headers,
+        // so they go through document.cookie instead. Reads happen server-side from the
+        // request, which is why these survive a refresh with no flicker.
+        window.appPrefs = {
+            set: function (key, value) {
+                document.cookie = key + "=" + encodeURIComponent(value) +
+                    ";path=/;max-age=31536000;samesite=lax";
+            }
+        };
+    </script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>
+
+@code {
+    // Pages run interactively unless they are marked [ExcludeFromInteractiveRouting] —
+    // currently just the sign-in page, which must stay statically rendered because signing in
+    // writes a Set-Cookie header and a live circuit cannot do that.
+    //
+    // Without this, AddInteractiveServerRenderMode() in Program.cs only *enables* the mode:
+    // nothing opts in, every page is static SSR, and no button, dialog or toggle works.
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    private IComponentRenderMode? PageRenderMode =>
+        HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+}
