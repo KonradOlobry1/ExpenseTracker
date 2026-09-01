@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ExpenseTracker.Api.Migrations
 {
     [DbContext(typeof(ApiDbContext))]
-    [Migration("20260831174213_InitialCreate")]
+    [Migration("20260901143610_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -135,9 +135,7 @@ namespace ExpenseTracker.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId", "Name")
-                        .IsUnique()
-                        .HasFilter("[IsDeleted] = 0");
+                    b.HasIndex("UserId", "Name");
 
                     b.HasIndex("UserId", "SyncId")
                         .IsUnique();

@@ -6,7 +6,10 @@ using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Application.Services;
 using ExpenseTracker.Domain.Interfaces.Repositories;
 using ExpenseTracker.Presentation.Services;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using MudBlazor.Services;
 using ExpenseTracker.Api.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -35,11 +38,21 @@ builder.Services.AddScoped<ApiDbContext>(sp =>
 // Identity
 builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
 {
-    options.Password.RequireDigit = false;
-    options.Password.RequireLowercase = false;
-    options.Password.RequireUppercase = false;
+    options.Password.RequireDigit = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireUppercase = true;
+    // Length does more for strength than forcing symbol classes, which mostly drives users
+    // toward predictable substitutions.
     options.Password.RequireNonAlphanumeric = false;
-    options.Password.RequiredLength = 6;
+    options.Password.RequiredLength = 8;
+
+    // Applies to both login paths. Identity only enforces the password policy when a
+    // password is set or changed, so existing accounts keep working.
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.AllowedForNewUsers = true;
+
+    options.User.RequireUniqueEmail = true;
 })
 .AddEntityFrameworkStores<ApiDbContext>()
 .AddDefaultTokenProviders();
@@ -88,6 +101,36 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
+
+// Throttles credential stuffing across many accounts, which per-account lockout cannot see.
+// Partitioned by client IP: a single unpartitioned limiter would let one abusive caller
+// exhaust the budget for every user. UseForwardedHeaders below resolves the real client IP
+// behind App Service's proxy, without which every request would share one partition anyway.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    var permitPerMinute = builder.Configuration.GetValue("RateLimit:AuthPermitPerMinute", 10);
+
+    options.AddPolicy("auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = permitPerMinute,
+                QueueLimit = 0
+            }));
+});
+
+// App Service and the container proxy terminate TLS upstream, so the app sees plain HTTP.
+// Without this, UseHttpsRedirection would redirect forever.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedFor;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.LoginPath = "/account/login";
@@ -167,8 +210,17 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseForwardedHeaders();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+
 app.UseStaticFiles();
 app.UseAntiforgery();
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();

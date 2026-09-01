@@ -1,4 +1,4 @@
-using ExpenseTracker.Api.Models;
+﻿using ExpenseTracker.Api.Models;
 using ExpenseTracker.Domain.Entities;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -35,8 +35,12 @@ public class ApiDbContext(DbContextOptions<ApiDbContext> options) : IdentityDbCo
         {
             b.Property(c => c.Name).IsRequired().HasMaxLength(64);
             b.Property(c => c.UserId).IsRequired();
-            // Scoped per user, and filtered so a tombstoned category frees its name.
-            b.HasIndex(c => new { c.UserId, c.Name }).IsUnique().HasFilter("[IsDeleted] = 0");
+            // Deliberately NOT unique on (UserId, Name). SyncId is the identity here, and a
+            // device may legitimately push a category whose name matches a built-in one —
+            // enforcing name uniqueness made the whole push fail with a 500.
+            // The device database keeps its unique name index; it has a single user and a UI
+            // that can reject duplicates up front.
+            b.HasIndex(c => new { c.UserId, c.Name });
         });
 
         modelBuilder.Entity<Expense>(b =>

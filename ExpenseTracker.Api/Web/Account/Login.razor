@@ -73,7 +73,15 @@
         else
         {
             var result = await SignInManager.PasswordSignInAsync(
-                Input.Email, Input.Password, isPersistent: true, lockoutOnFailure: false);
+                Input.Email, Input.Password, isPersistent: true, lockoutOnFailure: true);
+
+            if (result.IsLockedOut)
+            {
+                // Distinct from a wrong password: otherwise a locked-out user keeps retrying
+                // a password that is actually correct.
+                _error = "Too many failed attempts. Try again in a few minutes.";
+                return;
+            }
 
             if (!result.Succeeded)
             {

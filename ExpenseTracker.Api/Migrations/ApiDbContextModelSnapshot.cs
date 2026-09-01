@@ -132,9 +132,7 @@ namespace ExpenseTracker.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId", "Name")
-                        .IsUnique()
-                        .HasFilter("[IsDeleted] = 0");
+                    b.HasIndex("UserId", "Name");
 
                     b.HasIndex("UserId", "SyncId")
                         .IsUnique();

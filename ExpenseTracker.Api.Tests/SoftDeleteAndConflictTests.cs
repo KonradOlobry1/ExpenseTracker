@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using static ExpenseTracker.Api.Tests.TestClient;
 
@@ -70,7 +70,7 @@ public class SoftDeleteTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
         var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
 
-        Assert.True(Assert.Single(pulled!.Categories!).IsDeleted);
+        Assert.True(Assert.Single(pulled!.Categories!, c => c.SyncId == categoryId).IsDeleted);
     }
 }
 

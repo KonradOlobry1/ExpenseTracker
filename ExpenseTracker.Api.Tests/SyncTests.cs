@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using static ExpenseTracker.Api.Tests.TestClient;
 
@@ -24,7 +24,7 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(expenseId, expense.SyncId);
         Assert.Equal(42.50m, expense.Amount);
         Assert.Equal(categoryId, expense.CategorySyncId);
-        Assert.Equal(categoryId, Assert.Single(pulled.Categories!).SyncId);
+        Assert.Contains(pulled.Categories!, c => c.SyncId == categoryId);
     }
 
     [Fact]
@@ -62,7 +62,8 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var bobsPull = await (await bob.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
 
         Assert.Empty(bobsPull!.Expenses ?? []);
-        Assert.Empty(bobsPull.Categories ?? []);
+        // Bob has his own seeded built-ins, but none of Alice's rows.
+        Assert.DoesNotContain(bobsPull.Categories ?? [], c => c.SyncId == categoryId);
     }
 
     [Fact]
@@ -81,7 +82,7 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.OK, bobPush.StatusCode);
         var bobsPull = await (await bob.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
-        Assert.Equal(shared, Assert.Single(bobsPull!.Categories!).SyncId);
+        Assert.Contains(bobsPull!.Categories!, c => c.SyncId == shared);
     }
 
     [Fact]

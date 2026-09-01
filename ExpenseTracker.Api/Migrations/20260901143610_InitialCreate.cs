@@ -306,9 +306,7 @@ namespace ExpenseTracker.Api.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_Categories_UserId_Name",
                 table: "Categories",
-                columns: new[] { "UserId", "Name" },
-                unique: true,
-                filter: "[IsDeleted] = 0");
+                columns: new[] { "UserId", "Name" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Categories_UserId_SyncId",
