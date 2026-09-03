@@ -1,0 +1,25 @@
+<Project>
+
+  <!-- Settings every project shares. Target frameworks stay per-project: the MAUI head
+       multi-targets and the rest do not. -->
+
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(UseMaui)' != 'true'">
+    <!--
+      A warning that nobody has to fix is a warning everybody learns to scroll past. Two had
+      already accumulated before this was turned on.
+
+      Excluded for the MAUI head: its Android and iOS builds pull in generated bindings and
+      linker passes that emit warnings outside this repository's control, and breaking the
+      device build over one of those helps nobody. CI builds the API and both test projects,
+      so the rule is enforced where it is checked.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

@@ -1,4 +1,4 @@
-@page "/account/login"
+﻿@page "/account/login"
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 @attribute [Microsoft.AspNetCore.Components.ExcludeFromInteractiveRouting]
 @layout AccountLayout
@@ -27,19 +27,19 @@
             <p class="login-error" role="alert">@_error</p>
         }
 
-        <EditForm Model="Input" FormName="login" OnValidSubmit="SubmitAsync" method="post">
+        <EditForm Model="Model" FormName="login" OnValidSubmit="SubmitAsync" method="post">
             <DataAnnotationsValidator />
 
             <label for="email">Email</label>
-            <InputText id="email" @bind-Value="Input.Email" type="email" autocomplete="username" />
-            <ValidationMessage For="@(() => Input.Email)" />
+            <InputText id="email" @bind-Value="Model.Email" type="email" autocomplete="username" />
+            <ValidationMessage For="@(() => Model.Email)" />
 
             <label for="password">Password</label>
-            <InputText id="password" @bind-Value="Input.Password" type="password" autocomplete="current-password" />
-            <ValidationMessage For="@(() => Input.Password)" />
+            <InputText id="password" @bind-Value="Model.Password" type="password" autocomplete="current-password" />
+            <ValidationMessage For="@(() => Model.Password)" />
 
             <label class="login-check">
-                <InputCheckbox @bind-Value="Input.Register" />
+                <InputCheckbox @bind-Value="Model.Register" />
                 <span>I need an account</span>
             </label>
 
@@ -49,17 +49,23 @@
 </div>
 
 @code {
-    [SupplyParameterFromForm] private InputModel Input { get; set; } = new();
+    // The bound property carries no initializer on purpose. Blazor assigns it from the form
+    // post, and a property initializer runs afterwards, so it would quietly replace whatever
+    // was posted with an empty model (BL0008). Everything reads it through Model, which
+    // materialises one on the GET render, where there is nothing to overwrite.
+    [SupplyParameterFromForm] private InputModel? Input { get; set; }
     [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private InputModel Model => Input ??= new InputModel();
 
     private string? _error;
 
     private async Task SubmitAsync()
     {
-        if (Input.Register)
+        if (Model.Register)
         {
-            var user = new AppUser { UserName = Input.Email, Email = Input.Email };
-            var created = await UserManager.CreateAsync(user, Input.Password);
+            var user = new AppUser { UserName = Model.Email, Email = Model.Email };
+            var created = await UserManager.CreateAsync(user, Model.Password);
             if (!created.Succeeded)
             {
                 _error = string.Join(" ", created.Errors.Select(e => e.Description));
@@ -75,7 +81,7 @@
         else
         {
             var result = await SignInManager.PasswordSignInAsync(
-                Input.Email, Input.Password, isPersistent: true, lockoutOnFailure: true);
+                Model.Email, Model.Password, isPersistent: true, lockoutOnFailure: true);
 
             if (result.IsLockedOut)
             {
@@ -91,7 +97,7 @@
                 return;
             }
 
-            var signedIn = await UserManager.FindByEmailAsync(Input.Email);
+            var signedIn = await UserManager.FindByEmailAsync(Model.Email);
             if (signedIn is not null) WriteSettingsCookies(signedIn);
         }
 

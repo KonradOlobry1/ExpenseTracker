@@ -1,23 +1,21 @@
-<Project Sdk="Microsoft.NET.Sdk.Razor">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <!-- Keeps component namespaces as ExpenseTracker.Components.* so nothing that
          referenced them (including MainPage.xaml's clr-namespace) has to change. -->
     <RootNamespace>ExpenseTracker</RootNamespace>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MudBlazor" Version="7.*" />
+    <PackageReference Include="MudBlazor" />
   </ItemGroup>
 
   <!-- A bare FrameworkReference cannot be used here: the MAUI head consuming this has no
        ASP.NET Core runtime pack for android-x64 or maccatalyst-x64, so it fails to restore. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
   </ItemGroup>
 
   <ItemGroup>

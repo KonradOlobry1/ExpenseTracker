@@ -1,0 +1,70 @@
+# Describes the style this codebase already uses, so an editor or a new contributor does not
+# have to infer it. Rules are severity `suggestion` rather than `warning`: TreatWarningsAsErrors
+# is on, and formatting disagreements should not be able to break a build.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.{cs,razor}]
+indent_size = 4
+max_line_length = 100
+
+[*.{csproj,props,targets,xaml,xml,config}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false   # two trailing spaces is a hard line break
+
+[*.cs]
+# ── Usings ────────────────────────────────────────────────────────────────────
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace:suggestion
+
+# ── File and namespace shape ──────────────────────────────────────────────────
+csharp_style_namespace_declarations = file_scoped:suggestion
+
+# ── var ───────────────────────────────────────────────────────────────────────
+# The codebase uses var wherever the type is evident from the right-hand side.
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# ── Expression-bodied members ─────────────────────────────────────────────────
+# Common here for one-line members; blocks are used once a body has real work in it.
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+csharp_style_expression_bodied_accessors = true:suggestion
+
+# ── Modern C# the codebase already relies on ──────────────────────────────────
+csharp_style_prefer_primary_constructors = true:suggestion
+csharp_style_prefer_pattern_matching = true:suggestion
+csharp_style_prefer_is_null_check_over_reference_equality_method = true:suggestion
+csharp_prefer_simple_using_statement = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_prefer_conditional_expression_over_assignment = true:suggestion
+dotnet_style_null_propagation = true:suggestion
+dotnet_style_coalesce_expression = true:suggestion
+
+# ── Naming ────────────────────────────────────────────────────────────────────
+dotnet_naming_rule.private_fields_underscore.severity = suggestion
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_prefix
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.underscore_prefix.required_prefix = _
+dotnet_naming_style.underscore_prefix.capitalization = camel_case
+
+# ── Generated code ────────────────────────────────────────────────────────────
+[**/Migrations/*.cs]
+generated_code = true

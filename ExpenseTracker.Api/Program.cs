@@ -128,7 +128,9 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedFor;
-    options.KnownNetworks.Clear();
+    // Cleared because the proxy is App Service's own front end, whose address is neither
+    // fixed nor knowable here. KnownIPNetworks replaced the obsolete KnownNetworks in .NET 10.
+    options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
 });
 builder.Services.ConfigureApplicationCookie(options =>
