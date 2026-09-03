@@ -45,6 +45,31 @@ jobs:
     name: Container build
     runs-on: ubuntu-latest
 
+    # A real SQL Server, not a stub. Three things need one: migrations, which nothing else in
+    # CI applies — the unit suite builds its schema with EnsureCreated against SQLite, so a
+    # migration that fails on SQL Server has always slipped through. Data Protection, whose
+    # keys now live in the database, which makes it a startup dependency. And any page render,
+    # for the same reason.
+    #
+    # The password is a throwaway for a container that exists for the length of this job and
+    # is reachable only from it. It is not a secret and is deliberately inline, so the job is
+    # reproducible by anyone reading it.
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Ci-Smoke-Password-1"
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Ci-Smoke-Password-1 -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 20s
+
     steps:
       - uses: actions/checkout@v4
 
@@ -53,28 +78,30 @@ jobs:
       - name: Build image
         run: docker build -f ExpenseTracker.Api/Dockerfile -t expensetracker-api:ci .
 
-      # A built image proves compilation, not that the app starts. This runs it against a
-      # deliberately unreachable database, which is exactly what /health/live is for: it
-      # reports that the process is up without touching SQL Server.
+      # A built image proves compilation, not that the app runs. This starts it against the
+      # service container above with migrations enabled, so the run covers schema creation,
+      # the Data Protection key ring, and the Blazor host actually rendering a page.
       #
-      # It used to assert the sign-in page rendered instead. That stopped being valid once
-      # Data Protection keys moved into the database — rendering any page needs the key ring,
-      # so the sign-in page legitimately fails without a database now. Signing in always
-      # needed one anyway; only the empty form used to render.
+      # --network host because the app runs in its own container: service containers are on a
+      # network this one would not otherwise join, and on the runner that puts SQL Server on
+      # localhost:1433 and the app on localhost:8080.
       - name: Smoke test
         run: |
-          docker run -d --name ci-smoke -p 8080:8080 \
+          CONNECTION="Server=localhost,1433;Database=expensetracker;User ID=sa;Password=Ci-Smoke-Password-1;Encrypt=True;TrustServerCertificate=True;"
+
+          docker run -d --name ci-smoke --network host \
+            -e "ASPNETCORE_HTTP_PORTS=8080" \
             -e "Jwt__Key=ci-smoke-test-signing-key-comfortably-over-32-bytes" \
-            -e "RunMigrationsAtStartup=false" \
-            -e "ConnectionStrings__DefaultConnection=Server=nonexistent;Database=x;" \
+            -e "RunMigrationsAtStartup=true" \
+            -e "ConnectionStrings__DefaultConnection=$CONNECTION" \
             expensetracker-api:ci
 
-          for i in $(seq 1 30); do
+          for i in $(seq 1 45); do
             if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health/live)" = "200" ]; then
               echo "App is live."
               break
             fi
-            if [ "$i" = "30" ]; then
+            if [ "$i" = "45" ]; then
               echo "App did not respond in time. Container logs:"
               docker logs ci-smoke
               exit 1
@@ -82,22 +109,26 @@ jobs:
             sleep 2
           done
 
-          # Readiness must report the unreachable database rather than claiming health.
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 http://localhost:8080/health/ready)
-          if [ "$code" != "503" ]; then
-            echo "Expected 503 from /health/ready with no database, got $code"
+          fail() {
+            echo "$1"
             docker logs ci-smoke
             exit 1
-          fi
-          echo "Readiness correctly reported the database as unavailable."
+          }
+
+          # Readiness proves the app reached the database — which means the migrations applied.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 http://localhost:8080/health/ready)
+          [ "$code" = "200" ] || fail "Expected 200 from /health/ready, got $code"
+          echo "Readiness reports a healthy database."
+
+          # Rendering any page needs the Data Protection key ring, which is stored in the
+          # database. This is the check that would catch a broken key-ring configuration.
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/account/login)
+          [ "$code" = "200" ] || fail "Expected 200 from /account/login, got $code"
+          echo "Sign-in page rendered."
 
           # The API must still reject anonymous callers.
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/sync/pull)
-          if [ "$code" != "401" ]; then
-            echo "Expected 401 from /api/sync/pull, got $code"
-            docker logs ci-smoke
-            exit 1
-          fi
+          [ "$code" = "401" ] || fail "Expected 401 from /api/sync/pull, got $code"
           echo "API rejected anonymous request as expected."
 
       - name: Stop container
