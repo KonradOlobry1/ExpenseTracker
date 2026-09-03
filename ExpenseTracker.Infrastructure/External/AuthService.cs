@@ -1,4 +1,5 @@
 ﻿using System.Data.Common;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -44,7 +45,7 @@ public class AuthService : IAuthService
 
     string IAuthService.ApiBaseUrl => ApiBaseUrl;
 
-    public async Task<bool> LoginAsync(string email, string password, CancellationToken ct = default)
+    public async Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default)
     {
         try
         {
@@ -55,28 +56,33 @@ public class AuthService : IAuthService
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Login rejected by server: {StatusCode}.", response.StatusCode);
-                return false;
+                return AuthResult.Fail(ReasonForStatus(response.StatusCode));
             }
 
             var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(cancellationToken: ct);
             if (auth is null)
             {
                 _logger.LogError("Login succeeded but the server returned an empty body.");
-                return false;
+                return AuthResult.Fail(AuthFailureReason.ServerError);
             }
 
             await _secrets.SetAsync(TokenKey, auth.Token);
             _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
-            return true;
+            return AuthResult.Success();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "Login failed while contacting the API.");
-            return false;
+            return AuthResult.Fail(AuthFailureReason.NetworkError);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Login response could not be parsed.");
+            return AuthResult.Fail(AuthFailureReason.ServerError);
         }
     }
 
-    public async Task<bool> RegisterAsync(string email, string password, CancellationToken ct = default)
+    public async Task<AuthResult> RegisterAsync(string email, string password, CancellationToken ct = default)
     {
         try
         {
@@ -89,26 +95,47 @@ public class AuthService : IAuthService
                 var body = await response.Content.ReadAsStringAsync(ct);
                 _logger.LogWarning("Registration rejected by server: {StatusCode} {Body}.",
                     response.StatusCode, body);
-                return false;
+                // Validation failures (weak password, email taken) arrive as 400 alongside
+                // everything else the server can reject a request for; there is no reason
+                // enum granular enough to tell those apart, so both read as "server error".
+                return AuthResult.Fail(ReasonForStatus(response.StatusCode));
             }
 
             var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(cancellationToken: ct);
             if (auth is null)
             {
                 _logger.LogError("Registration succeeded but the server returned an empty body.");
-                return false;
+                return AuthResult.Fail(AuthFailureReason.ServerError);
             }
 
             await _secrets.SetAsync(TokenKey, auth.Token);
             _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
-            return true;
+            return AuthResult.Success();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "Registration failed while contacting the API.");
-            return false;
+            return AuthResult.Fail(AuthFailureReason.NetworkError);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Registration response could not be parsed.");
+            return AuthResult.Fail(AuthFailureReason.ServerError);
         }
     }
+
+    /// <summary>
+    /// 401 and 423 are the only statuses <c>AuthController</c> returns for a reason the user
+    /// can act on (wrong password, too many attempts); everything else — a 500, a timeout
+    /// that still produced a response, a validation 400 on register — is bucketed together
+    /// since none of them are the user's fault and the app can't tell them apart usefully.
+    /// </summary>
+    private static AuthFailureReason ReasonForStatus(HttpStatusCode status) => status switch
+    {
+        HttpStatusCode.Unauthorized => AuthFailureReason.InvalidCredentials,
+        HttpStatusCode.Locked => AuthFailureReason.AccountLocked,
+        _ => AuthFailureReason.ServerError,
+    };
 
     /// <summary>
     /// Signs out and discards everything belonging to that account on this device.

@@ -127,15 +127,11 @@
         _working = true;
         try
         {
-            var ok = await AuthService.LoginAsync(_signInEmail.Trim(), _signInPassword);
-            if (ok)
+            var result = await AuthService.LoginAsync(_signInEmail.Trim(), _signInPassword);
+            if (result.Succeeded)
                 Nav.NavigateTo("/dashboard");
             else
-                _signInError = L["Login_InvalidCredentials"];
-        }
-        catch
-        {
-            _signInError = L["Login_Error"];
+                _signInError = Message(result.Failure);
         }
         finally
         {
@@ -162,8 +158,8 @@
         _working = true;
         try
         {
-            var ok = await AuthService.RegisterAsync(_regEmail.Trim(), _regPassword);
-            if (ok)
+            var result = await AuthService.RegisterAsync(_regEmail.Trim(), _regPassword);
+            if (result.Succeeded)
             {
                 _registerSuccess = L["Login_RegisterSuccess"];
                 await Task.Delay(800);
@@ -171,16 +167,23 @@
             }
             else
             {
-                _registerError = L["Login_Error"];
+                _registerError = Message(result.Failure);
             }
-        }
-        catch
-        {
-            _registerError = L["Login_Error"];
         }
         finally
         {
             _working = false;
         }
     }
+
+    // AccountLocked can't happen on register — only login records failed attempts — but the
+    // switch has to be exhaustive, and mapping it to the same message as an unrecognised
+    // reason costs nothing.
+    string Message(AuthFailureReason? reason) => reason switch
+    {
+        AuthFailureReason.InvalidCredentials => L["Login_InvalidCredentials"],
+        AuthFailureReason.AccountLocked => L["Login_AccountLocked"],
+        AuthFailureReason.NetworkError => L["Login_NetworkError"],
+        _ => L["Login_ServerError"],
+    };
 }

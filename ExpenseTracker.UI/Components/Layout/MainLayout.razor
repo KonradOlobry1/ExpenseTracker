@@ -7,6 +7,7 @@
 @inject IDialogService DialogService
 @inject IExpenseService ExpenseService
 @inject NavigationManager Nav
+@inject ISnackbar Snackbar
 @implements IDisposable
 
 <MudThemeProvider Theme="_theme" IsDarkMode="ThemeService.IsDarkMode" />
@@ -179,16 +180,29 @@ else
 
     async Task SyncNow()
     {
+        var result = await SyncService.SyncAsync();
+        if (result.Succeeded) return;
+
         // The app opens on an expired token by design; sync is where that stops working, so
         // this is where the user is asked to sign in again rather than watching sync fail.
-        if (!await AuthService.IsLoggedInAsync())
+        // NotSignedIn shouldn't be reachable here — the button only renders while _isLoggedIn
+        // — but the fix is the same either way, so it takes the same path rather than a
+        // dedicated (untestable, since it can't occur) branch.
+        if (result.Failure is SyncFailureReason.SessionExpired or SyncFailureReason.NotSignedIn)
         {
             Nav.NavigateTo($"{LoginPath}?expired=true");
             return;
         }
 
-        await SyncService.SyncAsync();
+        Snackbar.Add(SyncFailureMessage(result.Failure), Severity.Warning);
     }
+
+    string SyncFailureMessage(SyncFailureReason? reason) => reason switch
+    {
+        SyncFailureReason.NetworkError => L["Sync_NetworkError"],
+        SyncFailureReason.LocalDatabaseError => L["Sync_LocalDatabaseError"],
+        _ => L["Sync_ServerError"],
+    };
 
     async void OnPaymentDetected(decimal amount, string merchant)
     {

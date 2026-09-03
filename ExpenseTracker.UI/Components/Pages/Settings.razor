@@ -183,20 +183,32 @@
 
     async Task DoSync()
     {
-        // Same as the toolbar's sync button: an expired token is the point at which the user
-        // has to sign in again, not the moment the app opens.
-        if (!await AuthService.IsLoggedInAsync())
+        _syncing = true;
+        StateHasChanged();
+
+        var result = await SyncService.SyncAsync();
+
+        // Same as the toolbar's sync button: this is the point at which an expired session
+        // sends the user back to sign in, not the moment the app opens.
+        if (result.Failure is SyncFailureReason.SessionExpired or SyncFailureReason.NotSignedIn)
         {
             Nav.NavigateTo("/login?expired=true");
             return;
         }
 
-        _syncing = true;
-        StateHasChanged();
-        await SyncService.SyncAsync();
+        if (!result.Succeeded)
+            Snackbar.Add(SyncFailureMessage(result.Failure), Severity.Warning);
+
         await LoadAuthState();
         StateHasChanged();
     }
+
+    string SyncFailureMessage(SyncFailureReason? reason) => reason switch
+    {
+        SyncFailureReason.NetworkError => L["Sync_NetworkError"],
+        SyncFailureReason.LocalDatabaseError => L["Sync_LocalDatabaseError"],
+        _ => L["Sync_ServerError"],
+    };
 
     async Task SignOut()
     {

@@ -175,7 +175,7 @@ public class SyncSettingsTests
         h.Api.PullResponse = new SyncPullResponse(
             null, null, null, null, DateTime.UtcNow, SettingsDto("PLN", "kl"));
 
-        Assert.True(await h.Sync.SyncAsync());
+        Assert.True((await h.Sync.SyncAsync()).Succeeded);
         Assert.Equal("en", h.Localization.CurrentLanguage);
     }
 }
@@ -190,7 +190,10 @@ public class SyncFailureTests
         using var h = new SyncHarness();
         h.Api.PushStatus = HttpStatusCode.InternalServerError;
 
-        Assert.False(await h.Sync.SyncAsync());
+        var result = await h.Sync.SyncAsync();
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SyncFailureReason.ServerError, result.Failure);
         Assert.Null(h.Sync.LastSyncTime);
     }
 
@@ -199,7 +202,7 @@ public class SyncFailureTests
     {
         using var h = new SyncHarness();
 
-        Assert.True(await h.Sync.SyncAsync());
+        Assert.True((await h.Sync.SyncAsync()).Succeeded);
         Assert.NotNull(h.Sync.LastSyncTime);
     }
 
@@ -220,7 +223,10 @@ public class SyncFailureTests
     {
         using var h = new SyncHarness(signedIn: false);
 
-        Assert.False(await h.Sync.SyncAsync());
+        var result = await h.Sync.SyncAsync();
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SyncFailureReason.NotSignedIn, result.Failure);
         Assert.Empty(h.Api.Pushes);
     }
 }

@@ -44,10 +44,10 @@ public class WebAuthService(IHttpContextAccessor accessor) : IAuthService
     /// <summary>Cookie auth carries no bearer token.</summary>
     public Task<string?> GetTokenAsync() => Task.FromResult<string?>(null);
 
-    public Task<bool> LoginAsync(string email, string password, CancellationToken ct = default)
+    public Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default)
         => throw new NotSupportedException("Sign in via /account/login — a cookie cannot be set from a Blazor circuit.");
 
-    public Task<bool> RegisterAsync(string email, string password, CancellationToken ct = default)
+    public Task<AuthResult> RegisterAsync(string email, string password, CancellationToken ct = default)
         => throw new NotSupportedException("Register via /account/login — a cookie cannot be set from a Blazor circuit.");
 
     public Task LogoutAsync()

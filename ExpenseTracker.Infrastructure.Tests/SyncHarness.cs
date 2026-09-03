@@ -95,6 +95,13 @@ public class StubApi : HttpMessageHandler
         new(null, null, null, null, new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc), null);
 
     public HttpStatusCode PushStatus { get; set; } = HttpStatusCode.OK;
+    public HttpStatusCode PullStatus { get; set; } = HttpStatusCode.OK;
+    public HttpStatusCode LoginStatus { get; set; } = HttpStatusCode.OK;
+    public HttpStatusCode RegisterStatus { get; set; } = HttpStatusCode.OK;
+
+    /// <summary>Every request throws instead of getting a response — a DNS failure, a
+    /// connection refused, anything transport-level rather than an HTTP status.</summary>
+    public bool ThrowOnSend { get; set; }
 
     /// <summary>Every push payload the client sent, in order.</summary>
     public List<SyncPushRequest> Pushes { get; } = [];
@@ -105,7 +112,16 @@ public class StubApi : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        if (ThrowOnSend)
+            throw new HttpRequestException("Stubbed network failure.");
+
         var url = request.RequestUri!.ToString();
+
+        if (url.Contains("/api/auth/login"))
+            return AuthResponseMessage(LoginStatus);
+
+        if (url.Contains("/api/auth/register"))
+            return AuthResponseMessage(RegisterStatus);
 
         if (url.Contains("/api/sync/push"))
         {
@@ -117,14 +133,20 @@ public class StubApi : HttpMessageHandler
         if (url.Contains("/api/sync/pull"))
         {
             PullUrls.Add(url);
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(PullResponse)
-            };
+            return PullStatus == HttpStatusCode.OK
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(PullResponse) }
+                : new HttpResponseMessage(PullStatus);
         }
 
         return new HttpResponseMessage(HttpStatusCode.NotFound);
     }
+
+    private static HttpResponseMessage AuthResponseMessage(HttpStatusCode status) => status == HttpStatusCode.OK
+        ? new HttpResponseMessage(HttpStatusCode.OK)
+          {
+              Content = JsonContent.Create(new { Token = "stub-token", Expiry = DateTime.UtcNow.AddHours(24) })
+          }
+        : new HttpResponseMessage(status);
 }
 
 /// <summary>
@@ -217,11 +239,13 @@ public sealed class SyncHarness : IDisposable
         => new(currency, language, dark,
                updatedAt ?? new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc));
 
-    /// <summary>Runs a sync and fails the test with the logged reason if it did not succeed.</summary>
-    public async Task SyncOrExplainAsync()
+    /// <summary>Runs a sync and fails the test with the reason and log if it did not succeed.</summary>
+    public async Task<SyncResult> SyncOrExplainAsync()
     {
-        if (!await Sync.SyncAsync())
-            Assert.Fail("Sync failed: " + string.Join(" | ", SyncLog.Entries));
+        var result = await Sync.SyncAsync();
+        if (!result.Succeeded)
+            Assert.Fail($"Sync failed ({result.Failure}): " + string.Join(" | ", SyncLog.Entries));
+        return result;
     }
 
     public void Dispose() => _connection.Dispose();

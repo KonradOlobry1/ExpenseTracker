@@ -145,7 +145,9 @@ public static class Translations
             ["Login_InvalidCredentials"]  = "Invalid email or password.",
             ["Login_SessionExpired"]      = "Your session has expired. Sign in again to sync.",
             ["Login_RegisterSuccess"]     = "Account created. You are now signed in.",
-            ["Login_Error"]               = "An error occurred. Check the server URL.",
+            ["Login_AccountLocked"]       = "Too many failed attempts. Try again in a few minutes.",
+            ["Login_NetworkError"]        = "Could not reach the server. Check your connection and try again.",
+            ["Login_ServerError"]         = "Something went wrong on our end. Try again shortly.",
 
             // Account & Sync settings
             ["Settings_Account"]          = "Account & Sync",
@@ -168,6 +170,9 @@ public static class Translations
             ["Sync_PaymentPrompt"]        = "Add {0} at {1} as an expense?",
             ["Sync_AddExpense"]           = "Add Expense",
             ["Sync_Dismiss"]              = "Dismiss",
+            ["Sync_NetworkError"]         = "Could not reach the server. Your changes are saved and will sync later.",
+            ["Sync_ServerError"]          = "Sync failed. Try again shortly.",
+            ["Sync_LocalDatabaseError"]   = "Sync failed while saving to this device. Try again.",
 
             // Categories (system only — user categories fall back to their raw name)
             ["Category_Food"]             = "Food",
@@ -345,7 +350,9 @@ public static class Translations
             ["Login_InvalidCredentials"]  = "Nieprawidłowy e-mail lub hasło.",
             ["Login_SessionExpired"]      = "Sesja wygasła. Zaloguj się ponownie, aby zsynchronizować.",
             ["Login_RegisterSuccess"]     = "Konto utworzone. Jesteś zalogowany.",
-            ["Login_Error"]               = "Wystąpił błąd. Sprawdź adres serwera.",
+            ["Login_AccountLocked"]       = "Zbyt wiele nieudanych prób. Spróbuj ponownie za kilka minut.",
+            ["Login_NetworkError"]        = "Nie można połączyć się z serwerem. Sprawdź połączenie i spróbuj ponownie.",
+            ["Login_ServerError"]         = "Coś poszło nie tak po naszej stronie. Spróbuj ponownie wkrótce.",
 
             // Account & Sync settings
             ["Settings_Account"]          = "Konto i synchronizacja",
@@ -368,6 +375,9 @@ public static class Translations
             ["Sync_PaymentPrompt"]        = "Dodać {0} w {1} jako wydatek?",
             ["Sync_AddExpense"]           = "Dodaj wydatek",
             ["Sync_Dismiss"]              = "Odrzuć",
+            ["Sync_NetworkError"]         = "Nie można połączyć się z serwerem. Zmiany są zapisane i zsynchronizują się później.",
+            ["Sync_ServerError"]          = "Synchronizacja nie powiodła się. Spróbuj ponownie wkrótce.",
+            ["Sync_LocalDatabaseError"]   = "Synchronizacja nie powiodła się podczas zapisu na tym urządzeniu. Spróbuj ponownie.",
 
             // Categories (system only — user categories fall back to their raw name)
             ["Category_Food"]             = "Jedzenie",

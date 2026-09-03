@@ -4,8 +4,8 @@ public record UserInfo(string Email, string UserId);
 
 public interface IAuthService
 {
-    Task<bool> LoginAsync(string email, string password, CancellationToken ct = default);
-    Task<bool> RegisterAsync(string email, string password, CancellationToken ct = default);
+    Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default);
+    Task<AuthResult> RegisterAsync(string email, string password, CancellationToken ct = default);
     Task LogoutAsync();
 
     /// <summary>Whether there is a valid, unexpired session. Sync requires this.</summary>
