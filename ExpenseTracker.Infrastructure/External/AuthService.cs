@@ -15,6 +15,7 @@ public class AuthService : IAuthService
 {
     private const string TokenKey = "jwt_token";
     private const string ExpiryKey = "jwt_expiry";
+    private const string RefreshTokenKey = "jwt_refresh_token";
 
     private readonly HttpClient _http;
     private readonly ILogger<AuthService> _logger;
@@ -66,8 +67,7 @@ public class AuthService : IAuthService
                 return AuthResult.Fail(AuthFailureReason.ServerError);
             }
 
-            await _secrets.SetAsync(TokenKey, auth.Token);
-            _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
+            await StoreTokensAsync(auth);
             return AuthResult.Success();
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
@@ -108,8 +108,7 @@ public class AuthService : IAuthService
                 return AuthResult.Fail(AuthFailureReason.ServerError);
             }
 
-            await _secrets.SetAsync(TokenKey, auth.Token);
-            _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
+            await StoreTokensAsync(auth);
             return AuthResult.Success();
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
@@ -146,11 +145,34 @@ public class AuthService : IAuthService
     /// worse, the next edit to one of them pushed it into the new account. The replica is a
     /// cache of one account's data; it has no meaning once that account is signed out.
     ///
+    /// Also revokes the refresh token server-side, best-effort, before clearing it locally.
+    /// Without this, "signing out" only ever meant forgetting the token on this device — a
+    /// copy captured earlier (a stolen device, a compromised backup) would still work, since
+    /// nothing had told the server the session was over.
+    ///
     /// The API base URL is not touched — it is a fixed constant now, not per-device state.
     /// </remarks>
     public async Task LogoutAsync()
     {
+        var refreshToken = await _secrets.GetAsync(RefreshTokenKey);
+        if (!string.IsNullOrEmpty(refreshToken))
+        {
+            try
+            {
+                var baseUrl = ApiBaseUrl.TrimEnd('/');
+                await _http.PostAsJsonAsync($"{baseUrl}/api/auth/revoke", new { RefreshToken = refreshToken });
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                // Signing out locally must succeed even when the server can't be reached —
+                // an unreachable revoke just means a stale token lingers server-side until it
+                // expires on its own; it does not block the user from leaving the app.
+                _logger.LogWarning(ex, "Could not revoke the refresh token on the server.");
+            }
+        }
+
         _secrets.Remove(TokenKey);
+        _secrets.Remove(RefreshTokenKey);
         _prefs.Remove(ExpiryKey);
         _prefs.Remove(SyncService.LastSyncKey);
         _prefs.Remove(LocalSettings.StampKey);
@@ -183,10 +205,17 @@ public class AuthService : IAuthService
             if (string.IsNullOrEmpty(token)) return false;
 
             var expiryTicks = _prefs.Get<long>(ExpiryKey, 0);
-            if (expiryTicks == 0) return false;
+            var expiry = expiryTicks == 0 ? DateTime.MinValue : new DateTime(expiryTicks, DateTimeKind.Utc);
 
-            var expiry = new DateTime(expiryTicks, DateTimeKind.Utc);
-            return expiry > DateTime.UtcNow;
+            if (expiry > DateTime.UtcNow) return true;
+
+            // The access token has run out. Rather than every caller of IsLoggedInAsync
+            // sending the user back to a password prompt the moment a day has passed, try the
+            // refresh token first — this is what lets a device stay signed in indefinitely as
+            // long as it syncs at least once within the refresh token's 30-day lifetime,
+            // instead of once every 24 hours. Every existing call site (MainLayout, Settings,
+            // SyncService) already goes through this method, so they all gain this for free.
+            return await TryRefreshAsync();
         }
         catch (Exception ex)
         {
@@ -194,6 +223,49 @@ public class AuthService : IAuthService
             _logger.LogError(ex, "Could not read the stored token; treating the user as signed out.");
             return false;
         }
+    }
+
+    private async Task<bool> TryRefreshAsync()
+    {
+        var refreshToken = await _secrets.GetAsync(RefreshTokenKey);
+        if (string.IsNullOrEmpty(refreshToken)) return false;
+
+        try
+        {
+            var baseUrl = ApiBaseUrl.TrimEnd('/');
+            var response = await _http.PostAsJsonAsync(
+                $"{baseUrl}/api/auth/refresh", new { RefreshToken = refreshToken });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // The server rejected this specific token — expired, already used, or
+                // revoked. Keeping it would just mean trying the same rejected token again
+                // next time, so it goes; the user needs a password to get a new one.
+                _logger.LogWarning("Refresh rejected by server: {StatusCode}.", response.StatusCode);
+                _secrets.Remove(RefreshTokenKey);
+                return false;
+            }
+
+            var auth = await response.Content.ReadFromJsonAsync<AuthResponse>();
+            if (auth is null) return false;
+
+            await StoreTokensAsync(auth);
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            // Unreachable, or responded with something unparseable — neither is evidence the
+            // refresh token itself is bad, so unlike a rejection it stays for next time.
+            _logger.LogWarning(ex, "Could not refresh the session; will retry next time.");
+            return false;
+        }
+    }
+
+    private async Task StoreTokensAsync(AuthResponse auth)
+    {
+        await _secrets.SetAsync(TokenKey, auth.Token);
+        _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
+        await _secrets.SetAsync(RefreshTokenKey, auth.RefreshToken);
     }
 
     public async Task<bool> HasStoredSessionAsync()
@@ -254,5 +326,5 @@ public class AuthService : IAuthService
         }
     }
 
-    private record AuthResponse(string Token, DateTime Expiry);
+    private record AuthResponse(string Token, DateTime Expiry, string RefreshToken);
 }

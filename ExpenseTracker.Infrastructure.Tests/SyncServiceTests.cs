@@ -258,9 +258,11 @@ public class SessionTests
     public async Task An_expired_token_still_counts_as_a_session()
     {
         // The whole point of the distinction. The app opens and the local replica stays
-        // readable; only sync stops until the user signs in again.
+        // readable regardless of whether a silent refresh is even possible — no refresh
+        // token here, so IsLoggedInAsync has no way to renew and sync stops until the user
+        // signs in again. See SilentRefreshTests for the case where a refresh token exists.
         using var h = new SyncHarness(signedIn: false);
-        h.SignIn(expiry: DateTime.UtcNow.AddHours(-1));
+        h.SignIn(expiry: DateTime.UtcNow.AddHours(-1), refreshToken: null);
 
         Assert.True(await h.Auth.HasStoredSessionAsync());
         Assert.False(await h.Auth.IsLoggedInAsync());
@@ -298,6 +300,29 @@ public class LogoutTests
         Assert.Empty(await db.Expenses.IgnoreQueryFilters().ToListAsync());
         Assert.Null(h.Sync.LastSyncTime);
         Assert.Equal(DateTime.MinValue, h.Settings.UpdatedAt);
+        Assert.False(await h.Auth.IsLoggedInAsync());
+    }
+
+    [Fact]
+    public async Task Signing_out_revokes_the_refresh_token_on_the_server()
+    {
+        // Otherwise "signing out" only ever meant forgetting the token locally — a copy
+        // captured earlier would still work, since nothing told the server the session ended.
+        using var h = new SyncHarness();
+
+        await h.Auth.LogoutAsync();
+
+        Assert.Equal(["stub-refresh-token"], h.Api.RevokedTokens);
+    }
+
+    [Fact]
+    public async Task Signing_out_succeeds_locally_even_when_the_server_is_unreachable()
+    {
+        using var h = new SyncHarness();
+        h.Api.ThrowOnSend = true;
+
+        await h.Auth.LogoutAsync();
+
         Assert.False(await h.Auth.IsLoggedInAsync());
     }
 

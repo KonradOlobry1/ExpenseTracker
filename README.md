@@ -75,8 +75,8 @@ full package build for no benefit.
 | Project | Covers |
 |---|---|
 | `ExpenseTracker.Domain.Tests` | Billing-cycle arithmetic and forecasting |
-| `ExpenseTracker.Infrastructure.Tests` | The device half of sync: pulled tombstones, the settings merge, what a failed push must not do, and sign-out |
-| `ExpenseTracker.Api.Tests` | The real API on in-memory SQLite: auth, lockout, rate limits, push/pull, conflict resolution |
+| `ExpenseTracker.Infrastructure.Tests` | The device half of sync: pulled tombstones, the settings merge, what a failed push must not do, silent token refresh, sign-out |
+| `ExpenseTracker.Api.Tests` | The real API on in-memory SQLite: auth, lockout, rate limits, push/pull, conflict resolution, refresh token issuance and rotation |
 
 The sync client is testable because it depends on `IPreferenceStore` and `ISecureStore`
 rather than MAUI's statics. The MAUI head supplies the implementations and nothing else
@@ -111,3 +111,9 @@ Both are anonymous.
 - Sync conflicts resolve by the client's own edit time, not arrival order.
 - `SyncId` is the cross-device identity. The seven built-in categories use fixed `SyncId`
   values so a device and the web agree they are the same categories.
+- Access tokens last 24 hours; a 30-day refresh token (rotated on every use) renews one
+  silently, so a device stays signed in as long as it syncs at least once a month. A device
+  only sees a password prompt again once the refresh token itself has run out or been revoked.
+- Device→API HTTP calls (sync, login, refresh) retry transient failures the same way
+  `EnableRetryOnFailure` covers the database — Azure SQL's serverless tier auto-pauses, and
+  the first request after idle needs a retry to survive the wake-up window.
