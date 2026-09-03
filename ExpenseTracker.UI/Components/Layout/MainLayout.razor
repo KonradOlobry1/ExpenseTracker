@@ -6,6 +6,7 @@
 @inject IPaymentCaptureService PaymentCapture
 @inject IDialogService DialogService
 @inject IExpenseService ExpenseService
+@inject NavigationManager Nav
 @implements IDisposable
 
 <MudThemeProvider Theme="_theme" IsDarkMode="ThemeService.IsDarkMode" />
@@ -13,12 +14,29 @@
 <MudSnackbarProvider />
 <MudPopoverProvider />
 
+@* Nothing renders until the session check finishes. Rendering the app first and redirecting
+   afterwards would flash a dashboard of somebody else's data at whoever opened the app. *@
+@if (!_sessionChecked)
+{
+    <MudLayout>
+        <MudMainContent>
+            <div class="d-flex justify-center pa-16">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            </div>
+        </MudMainContent>
+    </MudLayout>
+}
+else
+{
 <MudLayout>
     <MudAppBar Elevation="1" Color="Color.Primary">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu"
-                       Color="Color.Inherit"
-                       Edge="Edge.Start"
-                       OnClick="ToggleDrawer" />
+        @if (_hasSession)
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                           Color="Color.Inherit"
+                           Edge="Edge.Start"
+                           OnClick="ToggleDrawer" />
+        }
         <MudText Typo="Typo.h6" Class="ml-2">@L["AppTitle"]</MudText>
         <MudSpacer />
         <MudTooltip Text="@(ThemeService.IsDarkMode ? L["Theme_SwitchToLight"] : L["Theme_SwitchToDark"])">
@@ -37,6 +55,10 @@
         }
     </MudAppBar>
 
+    @* No navigation while signed out: the drawer's links would otherwise walk straight past
+       the login page into the app. *@
+    @if (_hasSession)
+    {
     <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
         <MudNavMenu Class="mt-2">
             <MudNavLink Href="/dashboard" Icon="@Icons.Material.Filled.Dashboard" Match="NavLinkMatch.All">
@@ -63,6 +85,7 @@
             </MudNavLink>
         </MudNavMenu>
     </MudDrawer>
+    }
 
     <MudMainContent>
         <MudContainer MaxWidth="MaxWidth.Large" Class="pa-4 mt-4">
@@ -70,10 +93,15 @@
         </MudContainer>
     </MudMainContent>
 </MudLayout>
+}
 
 @code {
+    const string LoginPath = "/login";
+
     bool _drawerOpen = true;
     bool _isLoggedIn;
+    bool _hasSession;
+    bool _sessionChecked;
     bool _isSyncing;
     string _lastSyncText = "";
 
@@ -101,26 +129,45 @@
 
     void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         ThemeService.OnChanged += Refresh;
         L.OnChanged += Refresh;
         SyncService.SyncStateChanged += OnSyncStateChanged;
 
+        // The layout outlives every page, so signing in or out does not re-run this. Re-check
+        // on each navigation instead, which is also what lets the drawer appear after login.
+        Nav.LocationChanged += OnLocationChanged;
+
         if (PaymentCapture.IsAvailable)
             PaymentCapture.PaymentDetected += OnPaymentDetected;
 
-        _ = LoadAuthStateAsync();
+        await LoadAuthStateAsync();
     }
 
     async Task LoadAuthStateAsync()
     {
+        _hasSession = await AuthService.HasStoredSessionAsync();
         _isLoggedIn = await AuthService.IsLoggedInAsync();
+        _sessionChecked = true;
+
         _isSyncing = SyncService.IsSyncing;
         var last = SyncService.LastSyncTime;
         _lastSyncText = last.HasValue ? last.Value.ToLocalTime().ToString("g") : L["Settings_NeverSynced"];
+
+        if (!_hasSession && !IsOnLoginPage)
+        {
+            Nav.NavigateTo(LoginPath);
+            return;
+        }
+
         await InvokeAsync(StateHasChanged);
     }
+
+    bool IsOnLoginPage =>
+        Nav.ToBaseRelativePath(Nav.Uri).TrimStart('/').StartsWith("login", StringComparison.OrdinalIgnoreCase);
+
+    void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = LoadAuthStateAsync();
 
     void OnSyncStateChanged()
     {
@@ -130,7 +177,18 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    async Task SyncNow() => await SyncService.SyncAsync();
+    async Task SyncNow()
+    {
+        // The app opens on an expired token by design; sync is where that stops working, so
+        // this is where the user is asked to sign in again rather than watching sync fail.
+        if (!await AuthService.IsLoggedInAsync())
+        {
+            Nav.NavigateTo($"{LoginPath}?expired=true");
+            return;
+        }
+
+        await SyncService.SyncAsync();
+    }
 
     async void OnPaymentDetected(decimal amount, string merchant)
     {
@@ -158,6 +216,7 @@
         ThemeService.OnChanged -= Refresh;
         L.OnChanged -= Refresh;
         SyncService.SyncStateChanged -= OnSyncStateChanged;
+        Nav.LocationChanged -= OnLocationChanged;
         if (PaymentCapture.IsAvailable)
             PaymentCapture.PaymentDetected -= OnPaymentDetected;
     }

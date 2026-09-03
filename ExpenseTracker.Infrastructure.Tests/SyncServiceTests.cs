@@ -224,6 +224,52 @@ public class SyncFailureTests
     }
 }
 
+/// <summary>
+/// The app gate asks whether this device belongs to an account; sync asks whether the token
+/// is still valid. Conflating the two would either let a stranger open the app or lock the
+/// owner out of their own offline data.
+/// </summary>
+public class SessionTests
+{
+    [Fact]
+    public async Task A_fresh_install_has_no_session()
+    {
+        using var h = new SyncHarness(signedIn: false);
+
+        Assert.False(await h.Auth.HasStoredSessionAsync());
+    }
+
+    [Fact]
+    public async Task Signing_in_creates_a_session()
+    {
+        using var h = new SyncHarness();
+
+        Assert.True(await h.Auth.HasStoredSessionAsync());
+    }
+
+    [Fact]
+    public async Task An_expired_token_still_counts_as_a_session()
+    {
+        // The whole point of the distinction. The app opens and the local replica stays
+        // readable; only sync stops until the user signs in again.
+        using var h = new SyncHarness(signedIn: false);
+        h.SignIn(expiry: DateTime.UtcNow.AddHours(-1));
+
+        Assert.True(await h.Auth.HasStoredSessionAsync());
+        Assert.False(await h.Auth.IsLoggedInAsync());
+    }
+
+    [Fact]
+    public async Task Signing_out_ends_the_session()
+    {
+        using var h = new SyncHarness();
+
+        await h.Auth.LogoutAsync();
+
+        Assert.False(await h.Auth.HasStoredSessionAsync());
+    }
+}
+
 public class LogoutTests
 {
     [Fact]

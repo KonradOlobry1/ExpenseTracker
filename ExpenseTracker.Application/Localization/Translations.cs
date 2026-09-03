@@ -142,9 +142,8 @@ public static class Translations
             ["Login_ConfirmPassword"]     = "Confirm Password",
             ["Login_SignIn"]              = "Sign In",
             ["Login_Register"]            = "Register",
-            ["Login_ServerUrl"]           = "Server URL",
             ["Login_InvalidCredentials"]  = "Invalid email or password.",
-            ["Login_NoServerUrl"]         = "Enter the server URL.",
+            ["Login_SessionExpired"]      = "Your session has expired. Sign in again to sync.",
             ["Login_RegisterSuccess"]     = "Account created. You are now signed in.",
             ["Login_Error"]               = "An error occurred. Check the server URL.",
 
@@ -343,9 +342,8 @@ public static class Translations
             ["Login_ConfirmPassword"]     = "Potwierdź hasło",
             ["Login_SignIn"]              = "Zaloguj się",
             ["Login_Register"]            = "Zarejestruj się",
-            ["Login_ServerUrl"]           = "Adres serwera",
             ["Login_InvalidCredentials"]  = "Nieprawidłowy e-mail lub hasło.",
-            ["Login_NoServerUrl"]         = "Podaj adres serwera.",
+            ["Login_SessionExpired"]      = "Sesja wygasła. Zaloguj się ponownie, aby zsynchronizować.",
             ["Login_RegisterSuccess"]     = "Konto utworzone. Jesteś zalogowany.",
             ["Login_Error"]               = "Wystąpił błąd. Sprawdź adres serwera.",
 

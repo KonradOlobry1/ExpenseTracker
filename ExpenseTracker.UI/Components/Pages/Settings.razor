@@ -183,6 +183,14 @@
 
     async Task DoSync()
     {
+        // Same as the toolbar's sync button: an expired token is the point at which the user
+        // has to sign in again, not the moment the app opens.
+        if (!await AuthService.IsLoggedInAsync())
+        {
+            Nav.NavigateTo("/login?expired=true");
+            return;
+        }
+
         _syncing = true;
         StateHasChanged();
         await SyncService.SyncAsync();
@@ -195,7 +203,9 @@
         await AuthService.LogoutAsync();
         _isLoggedIn = false;
         _userEmail = "";
-        StateHasChanged();
+
+        // Signing out also drops the local replica, so there is nothing left to show here.
+        Nav.NavigateTo("/login");
     }
 
     void OnSyncStateChanged()

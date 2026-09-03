@@ -193,6 +193,14 @@ public class AuthService : IAuthService
         }
     }
 
+    public async Task<bool> HasStoredSessionAsync()
+    {
+        // No expiry check on purpose — see IAuthService. A stored token means this device
+        // belongs to an account, which is what the app gate asks about.
+        var token = await _secrets.GetAsync(TokenKey);
+        return !string.IsNullOrEmpty(token);
+    }
+
     public async Task<UserInfo?> GetCurrentUserAsync()
     {
         try

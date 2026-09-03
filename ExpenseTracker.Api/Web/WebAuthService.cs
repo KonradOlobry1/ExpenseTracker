@@ -25,6 +25,13 @@ public class WebAuthService(IHttpContextAccessor accessor) : IAuthService
     public Task<bool> IsLoggedInAsync()
         => Task.FromResult(User?.Identity?.IsAuthenticated ?? false);
 
+    /// <summary>
+    /// The same thing on the web. The distinction the interface draws exists for the device,
+    /// where a stored token can outlive its expiry; a cookie is either presented or it is not,
+    /// and the Blazor endpoints already require authorization before a circuit starts.
+    /// </summary>
+    public Task<bool> HasStoredSessionAsync() => IsLoggedInAsync();
+
     public Task<UserInfo?> GetCurrentUserAsync()
     {
         if (User?.Identity?.IsAuthenticated != true) return Task.FromResult<UserInfo?>(null);

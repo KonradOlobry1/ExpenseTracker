@@ -28,12 +28,6 @@
                               Adornment="Adornment.End"
                               AdornmentIcon="@(_showSignInPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
                               OnAdornmentClick="() => _showSignInPassword = !_showSignInPassword" />
-                <MudTextField @bind-Value="_signInServerUrl"
-                              Label="@L["Login_ServerUrl"]"
-                              InputType="InputType.Url"
-                              Variant="Variant.Outlined"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Cloud" />
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            FullWidth="true"
@@ -75,12 +69,6 @@
                               Adornment="Adornment.End"
                               AdornmentIcon="@(_showRegPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
                               OnAdornmentClick="() => _showRegPassword = !_showRegPassword" />
-                <MudTextField @bind-Value="_regServerUrl"
-                              Label="@L["Login_ServerUrl"]"
-                              InputType="InputType.Url"
-                              Variant="Variant.Outlined"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Cloud" />
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            FullWidth="true"
@@ -95,30 +83,38 @@
 </MudPaper>
 
 @code {
+    // The server address is no longer asked for. It defaults to the hosted service in
+    // AuthService.DefaultApiBaseUrl, which is right for everyone who is not developing this
+    // app — and the field, being empty on a fresh install, used to make a perfectly good
+    // password look wrong. Point a build at another server by changing that constant.
+
     string _signInEmail = "";
     string _signInPassword = "";
-    string _signInServerUrl = "";
     string _signInError = "";
     bool _showSignInPassword;
 
     string _regEmail = "";
     string _regPassword = "";
     string _regConfirmPassword = "";
-    string _regServerUrl = "";
     string _registerError = "";
     string _registerSuccess = "";
     bool _showRegPassword;
 
     bool _working;
 
+    [SupplyParameterFromQuery(Name = "expired")] public bool Expired { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         if (await AuthService.IsLoggedInAsync())
+        {
             Nav.NavigateTo("/dashboard");
+            return;
+        }
 
-        // Pre-fill saved server URL
-        _signInServerUrl = AuthService.ApiBaseUrl ?? "";
-        _regServerUrl = AuthService.ApiBaseUrl ?? "";
+        // Arrived here from a sync attempt on a token that has run out, rather than from a
+        // sign-out. Saying so avoids the impression that the account itself is gone.
+        if (Expired) _signInError = L["Login_SessionExpired"];
     }
 
     async Task DoSignIn()
@@ -130,18 +126,9 @@
             return;
         }
 
-        // An empty URL makes LoginAsync return false without a request, which the branch
-        // below reported as a wrong password.
-        if (string.IsNullOrWhiteSpace(_signInServerUrl))
-        {
-            _signInError = L["Login_NoServerUrl"];
-            return;
-        }
-
         _working = true;
         try
         {
-            AuthService.ApiBaseUrl = _signInServerUrl.Trim();
             var ok = await AuthService.LoginAsync(_signInEmail.Trim(), _signInPassword);
             if (ok)
                 Nav.NavigateTo("/dashboard");
@@ -174,16 +161,9 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(_regServerUrl))
-        {
-            _registerError = L["Login_NoServerUrl"];
-            return;
-        }
-
         _working = true;
         try
         {
-            AuthService.ApiBaseUrl = _regServerUrl.Trim();
             var ok = await AuthService.RegisterAsync(_regEmail.Trim(), _regPassword);
             if (ok)
             {
