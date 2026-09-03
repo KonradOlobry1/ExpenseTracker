@@ -4,6 +4,7 @@ using ExpenseTracker.Api.DTOs;
 using ExpenseTracker.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace ExpenseTracker.Api.Controllers;
@@ -11,6 +12,7 @@ namespace ExpenseTracker.Api.Controllers;
 [ApiController]
 [Route("api/sync")]
 [Authorize]
+[EnableRateLimiting("sync")]
 public class SyncController(ApiDbContext db) : ControllerBase
 {
     private string CurrentUserId =>
@@ -93,6 +95,13 @@ public class SyncController(ApiDbContext db) : ControllerBase
     /// copy of. Resolution is by the client's own edit stamp: push order used to decide the
     /// winner, so whichever device synced last won even when its edit was older.
     /// </summary>
+    /// <remarks>
+    /// The whole batch is resolved with one query. This used to run a FirstOrDefaultAsync per
+    /// row, so a phone pushing forty rows made forty round trips to a database on the other
+    /// side of the internet — on a link where latency, not the query, is the cost.
+    ///
+    /// (UserId, SyncId) is unique, so keying the lookup by SyncId within one account is safe.
+    /// </remarks>
     private async Task UpsertAsync<TDto, TEntity>(
         DbSet<TEntity> set, List<TDto>? items, string userId, DateTime now,
         Func<TDto, Guid> syncId, Action<TDto, TEntity> apply, Func<TDto, TEntity?> create,
@@ -101,22 +110,34 @@ public class SyncController(ApiDbContext db) : ControllerBase
     {
         if (items is not { Count: > 0 }) return;
 
+        var incomingIds = items.Select(syncId).ToHashSet();
+        var bySyncId = await set
+            .Where(e => e.UserId == userId && incomingIds.Contains(e.SyncId))
+            .ToDictionaryAsync(e => e.SyncId);
+
         foreach (var dto in items)
         {
             if (canApply is not null && !canApply(dto)) continue;
 
-            var id = syncId(dto);
-            var existing = await set.FirstOrDefaultAsync(e => e.SyncId == id && e.UserId == userId);
+            // Materialised once and reused for both the insert and the timestamp comparison.
+            // It used to be built twice per row, the second copy thrown away after reading a
+            // single property off it.
+            if (create(dto) is not { } incoming) continue;
 
-            if (existing is null)
+            var id = syncId(dto);
+
+            if (!bySyncId.TryGetValue(id, out var existing))
             {
-                if (create(dto) is not { } entity) continue;
-                entity.UpdatedAt = now;
-                set.Add(entity);
+                incoming.UpdatedAt = now;
+                set.Add(incoming);
+
+                // A batch that carries the same SyncId twice now merges into one row. The
+                // per-row lookup could not see rows added earlier in the same batch, so it
+                // inserted both and broke the unique index at SaveChanges.
+                bySyncId[id] = incoming;
                 continue;
             }
 
-            if (create(dto) is not { } incoming) continue;
             if (existing.ClientUpdatedAt != default && incoming.ClientUpdatedAt < existing.ClientUpdatedAt)
                 continue;
 

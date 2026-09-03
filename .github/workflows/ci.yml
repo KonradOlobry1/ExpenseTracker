@@ -48,9 +48,14 @@ jobs:
       - name: Build image
         run: docker build -f ExpenseTracker.Api/Dockerfile -t expensetracker-api:ci .
 
-      # A built image proves compilation, not that the app starts. This starts it with a
-      # deliberately unreachable database and only checks the sign-in page renders, which
-      # exercises startup, config binding and the Blazor host without needing SQL Server.
+      # A built image proves compilation, not that the app starts. This runs it against a
+      # deliberately unreachable database, which is exactly what /health/live is for: it
+      # reports that the process is up without touching SQL Server.
+      #
+      # It used to assert the sign-in page rendered instead. That stopped being valid once
+      # Data Protection keys moved into the database — rendering any page needs the key ring,
+      # so the sign-in page legitimately fails without a database now. Signing in always
+      # needed one anyway; only the empty form used to render.
       - name: Smoke test
         run: |
           docker run -d --name ci-smoke -p 8080:8080 \
@@ -60,8 +65,8 @@ jobs:
             expensetracker-api:ci
 
           for i in $(seq 1 30); do
-            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/account/login)" = "200" ]; then
-              echo "Sign-in page served."
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health/live)" = "200" ]; then
+              echo "App is live."
               break
             fi
             if [ "$i" = "30" ]; then
@@ -71,6 +76,15 @@ jobs:
             fi
             sleep 2
           done
+
+          # Readiness must report the unreachable database rather than claiming health.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 http://localhost:8080/health/ready)
+          if [ "$code" != "503" ]; then
+            echo "Expected 503 from /health/ready with no database, got $code"
+            docker logs ci-smoke
+            exit 1
+          fi
+          echo "Readiness correctly reported the database as unavailable."
 
           # The API must still reject anonymous callers.
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/sync/pull)

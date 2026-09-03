@@ -196,4 +196,52 @@ public class EmptySyncIdGuardTests(ApiFactory factory) : IClassFixture<ApiFactor
 
         Assert.Equal("Valid", Assert.Single(pulled!.Expenses!).Description);
     }
+
+    [Fact]
+    public async Task A_large_batch_round_trips_intact()
+    {
+        // Push resolves the whole batch with one query rather than one per row. Fifty rows is
+        // an ordinary first sync from a phone that has been used offline for a while.
+        var client = await factory.RegisterAsync();
+        var categoryId = Guid.NewGuid();
+
+        var expenses = Enumerable.Range(0, 50)
+            .Select(i => Expense(Guid.NewGuid(), categoryId, i + 1m, $"Row {i}"))
+            .ToList();
+
+        var push = await client.PostAsJsonAsync("/api/sync/push",
+            new PushPayload(Expenses: expenses, Categories: [Category(categoryId)]));
+        Assert.Equal(HttpStatusCode.OK, push.StatusCode);
+
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+
+        Assert.Equal(50, pulled!.Expenses!.Count);
+        Assert.Equal(
+            expenses.Select(e => e.SyncId).OrderBy(id => id),
+            pulled.Expenses.Select(e => e.SyncId).OrderBy(id => id));
+    }
+
+    [Fact]
+    public async Task The_same_row_twice_in_one_batch_becomes_a_single_row()
+    {
+        // The per-row lookup could not see rows added earlier in the same batch, so a client
+        // that sent a duplicate inserted it twice and broke the unique (UserId, SyncId) index
+        // at SaveChanges. Resolving the batch through one dictionary merges them instead.
+        var client = await factory.RegisterAsync();
+        var categoryId = Guid.NewGuid();
+        var expenseId = Guid.NewGuid();
+
+        var push = await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+            Expenses:
+            [
+                Expense(expenseId, categoryId, 10m, "First copy"),
+                Expense(expenseId, categoryId, 99m, "Second copy"),
+            ],
+            Categories: [Category(categoryId)]));
+        Assert.Equal(HttpStatusCode.OK, push.StatusCode);
+
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+
+        Assert.Single(pulled!.Expenses!);
+    }
 }

@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Security.Claims;
+using System.Text;
 using ExpenseTracker.Api.Data;
 using ExpenseTracker.Api.Data.Repositories;
 using ExpenseTracker.Api.Web;
@@ -6,6 +7,8 @@ using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Application.Services;
 using ExpenseTracker.Domain.Interfaces.Repositories;
 using ExpenseTracker.Presentation.Services;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using System.Threading.RateLimiting;
@@ -121,6 +124,23 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = permitPerMinute,
                 QueueLimit = 0
             }));
+
+    // Sync is the most expensive endpoint in the app — it reads and writes every table — and
+    // was the only one with no limit at all. Partitioned by account rather than IP: a family
+    // behind one router is several clients, and a phone roaming between networks is one.
+    var syncPerMinute = builder.Configuration.GetValue("RateLimit:SyncPermitPerMinute", 30);
+
+    options.AddPolicy("sync", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                          ?? context.Connection.RemoteIpAddress?.ToString()
+                          ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = syncPerMinute,
+                QueueLimit = 0
+            }));
 });
 
 // App Service and the container proxy terminate TLS upstream, so the app sees plain HTTP.
@@ -140,6 +160,22 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.AccessDeniedPath = "/account/login";
 });
 builder.Services.AddControllers();
+
+// Failures reach the clients as RFC 7807 JSON instead of an empty 500 body. The device sync
+// service reads `detail` from it, so a failed sync can say what actually went wrong rather
+// than only that the request did not succeed.
+builder.Services.AddProblemDetails();
+
+// Liveness and readiness are separate on purpose — see the endpoint registrations below.
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<ApiDbContext>("database", tags: ["ready"]);
+
+// Without this, keys are written to the container's filesystem and lost on every restart:
+// each deploy or recycle would sign every browser out. Storing them in the database also
+// means a second instance can read cookies issued by the first.
+builder.Services.AddDataProtection()
+    .PersistKeysToDbContext<ApiDbContext>()
+    .SetApplicationName("ExpenseTracker");
 
 // ── Blazor Server UI ──────────────────────────────────────────────────────────
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
@@ -207,10 +243,17 @@ if (builder.Configuration.GetValue("RunMigrationsAtStartup", true))
     await db.Database.MigrateAsync();
 }
 
+// First in the pipeline so it catches everything after it. Outside Development this turns an
+// unhandled exception into a ProblemDetails response; Development keeps the developer page.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+else
+{
+    app.UseExceptionHandler();
+    app.UseStatusCodePages();
 }
 
 app.UseForwardedHeaders();
@@ -223,10 +266,25 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseAntiforgery();
-app.UseRateLimiter();
 
 app.UseAuthentication();
+
+// After authentication, not before: the sync policy partitions by account id, and running
+// the limiter first left context.User anonymous, so every account fell into one partition
+// keyed by address — which is what a test caught. Token validation is cheap; the expensive
+// work (password hashing, database access) still happens after the limiter.
+app.UseRateLimiter();
+
 app.UseAuthorization();
+
+// Two endpoints, not one. Liveness must not touch the database: it is what App Service polls,
+// and on the free tier the SQL database auto-pauses — a probe that woke it every minute would
+// defeat the auto-pause and burn the budget. Readiness is the one to call deliberately, and
+// doubles as a way to warm the database before a first real request.
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false })
+   .AllowAnonymous();
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") })
+   .AllowAnonymous();
 
 app.MapControllers();
 // The shared pages live in ExpenseTracker.UI. Endpoint-based routing needs them declared

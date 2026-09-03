@@ -84,6 +84,17 @@ a container or App Service:
 | `Jwt__Key` | Token signing key, 32 bytes minimum |
 | `ConnectionStrings__DefaultConnection` | SQL Server connection string |
 | `RunMigrationsAtStartup` | Applies migrations on boot. Default `true`; set `false` once the schema is settled |
+| `RateLimit__AuthPermitPerMinute` | Sign-in and registration attempts per IP. Default `10` |
+| `RateLimit__SyncPermitPerMinute` | Sync requests per account. Default `30` |
+
+## Health
+
+| Endpoint | Checks | Use |
+|---|---|---|
+| `/health/live` | process only, no database | Platform probe. Deliberately does not touch SQL, so it cannot keep the auto-paused free-tier database awake |
+| `/health/ready` | database reachable | Call before a first real request to warm the database, or when diagnosing |
+
+Both are anonymous.
 
 ## Notes
 

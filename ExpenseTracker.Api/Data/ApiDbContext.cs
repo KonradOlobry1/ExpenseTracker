@@ -1,5 +1,6 @@
 ﻿using ExpenseTracker.Api.Models;
 using ExpenseTracker.Domain.Entities;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,8 +21,16 @@ namespace ExpenseTracker.Api.Data;
 /// tombstones so deletions can propagate. Callers that want live rows must filter
 /// <c>IsDeleted</c> themselves — the repositories in Data/Repositories do.
 /// </remarks>
-public class ApiDbContext(DbContextOptions<ApiDbContext> options) : IdentityDbContext<AppUser>(options)
+public class ApiDbContext(DbContextOptions<ApiDbContext> options)
+    : IdentityDbContext<AppUser>(options), IDataProtectionKeyContext
 {
+    /// <summary>
+    /// Data Protection keys, which sign and encrypt the web sign-in cookie. Kept in the
+    /// database rather than on disk so a restart or a second instance does not invalidate
+    /// every session.
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<Income> Incomes => Set<Income>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();

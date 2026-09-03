@@ -36,6 +36,7 @@ public class ApiFactory : WebApplicationFactory<Program>
         // rate-limit partition. Raise the ceiling so ordinary tests are unaffected; the
         // rate-limiting tests lower it deliberately.
         builder.UseSetting("RateLimit:AuthPermitPerMinute", "10000");
+        builder.UseSetting("RateLimit:SyncPermitPerMinute", "10000");
         builder.UseSetting("Jwt:Key", "test-signing-key-that-is-comfortably-over-32-bytes-long");
         builder.UseSetting("Jwt:Issuer", "ExpenseTracker");
         builder.UseSetting("Jwt:Audience", "ExpenseTrackerApp");
