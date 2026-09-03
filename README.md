@@ -23,10 +23,10 @@ Browser ────────────────────┘
 |---|---|---|
 | `ExpenseTracker.Domain` | net10.0 | Entities, repository interfaces, `PredictionEngine`, currency and language catalogues |
 | `ExpenseTracker.Contracts` | net10.0 | The sync wire format, shared by the API, the device client and the tests |
-| `ExpenseTracker.Application` | net10.0 | Service interfaces and implementations |
-| `ExpenseTracker.Infrastructure` | net10.0 | `AppDbContext`, device repositories, SQLite migrations |
+| `ExpenseTracker.Application` | net10.0 | Service interfaces and implementations, UI service contracts, translations |
+| `ExpenseTracker.Infrastructure` | net10.0 | `AppDbContext`, device repositories, SQLite migrations, the sync and auth clients |
 | `ExpenseTracker.UI` | net10.0 | Shared Razor components and UI service interfaces |
-| `ExpenseTracker` | net10.0-* | MAUI head — platform implementations only |
+| `ExpenseTracker` | net10.0-* | MAUI head — platform implementations only (`Preferences`, `SecureStorage`, payment capture) |
 | `ExpenseTracker.Api` | net10.0 | Sync API, Blazor Server UI, SQL Server migrations |
 
 Everything targets .NET 10. Mixing frameworks previously caused a subtle failure: a
@@ -66,14 +66,21 @@ docker run -p 8080:8080 -e "Jwt__Key=<32+ bytes>" -e "ConnectionStrings__Default
 ## Tests
 
 ```bash
-dotnet test ExpenseTracker.Domain.Tests; dotnet test ExpenseTracker.Api.Tests
+dotnet test ExpenseTracker.Domain.Tests; dotnet test ExpenseTracker.Infrastructure.Tests; dotnet test ExpenseTracker.Api.Tests
 ```
 
 Run them individually — `dotnet test` on the solution drags the MAUI Android head through a
 full package build for no benefit.
 
-`ExpenseTracker.Api.Tests` boots the real API against in-memory SQLite and covers auth, sync
-push/pull, soft-delete tombstones and conflict resolution.
+| Project | Covers |
+|---|---|
+| `ExpenseTracker.Domain.Tests` | Billing-cycle arithmetic and forecasting |
+| `ExpenseTracker.Infrastructure.Tests` | The device half of sync: pulled tombstones, the settings merge, what a failed push must not do, and sign-out |
+| `ExpenseTracker.Api.Tests` | The real API on in-memory SQLite: auth, lockout, rate limits, push/pull, conflict resolution |
+
+The sync client is testable because it depends on `IPreferenceStore` and `ISecureStore`
+rather than MAUI's statics. The MAUI head supplies the implementations and nothing else
+about sync lives there.
 
 ## Configuration
 

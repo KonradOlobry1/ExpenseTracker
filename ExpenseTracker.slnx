@@ -11,5 +11,6 @@
   <Folder Name="/tests/">
     <Project Path="ExpenseTracker.Domain.Tests/ExpenseTracker.Domain.Tests.csproj" />
     <Project Path="ExpenseTracker.Api.Tests/ExpenseTracker.Api.Tests.csproj" />
+    <Project Path="ExpenseTracker.Infrastructure.Tests/ExpenseTracker.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

@@ -19,15 +19,21 @@ public class AuthService : IAuthService
     private readonly HttpClient _http;
     private readonly ILogger<AuthService> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly IPreferenceStore _prefs;
+    private readonly ISecureStore _secrets;
 
     public AuthService(
         HttpClient http,
         ILogger<AuthService> logger,
-        IDbContextFactory<AppDbContext> dbFactory)
+        IDbContextFactory<AppDbContext> dbFactory,
+        IPreferenceStore prefs,
+        ISecureStore secrets)
     {
         _http = http;
         _logger = logger;
         _dbFactory = dbFactory;
+        _prefs = prefs;
+        _secrets = secrets;
     }
 
     // A fresh install has no saved preference, and an empty base URL aborts login before the
@@ -39,13 +45,13 @@ public class AuthService : IAuthService
 
     public string? ApiBaseUrl
     {
-        get => Preferences.Default.Get<string?>(ApiUrlKey, DefaultApiBaseUrl);
+        get => _prefs.Get<string?>(ApiUrlKey, DefaultApiBaseUrl);
         set
         {
             if (value is not null)
-                Preferences.Default.Set(ApiUrlKey, value);
+                _prefs.Set(ApiUrlKey, value);
             else
-                Preferences.Default.Remove(ApiUrlKey);
+                _prefs.Remove(ApiUrlKey);
         }
     }
 
@@ -76,8 +82,8 @@ public class AuthService : IAuthService
                 return false;
             }
 
-            await SecureStorage.Default.SetAsync(TokenKey, auth.Token);
-            Preferences.Default.Set(ExpiryKey, auth.Expiry.Ticks);
+            await _secrets.SetAsync(TokenKey, auth.Token);
+            _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
             return true;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
@@ -116,8 +122,8 @@ public class AuthService : IAuthService
                 return false;
             }
 
-            await SecureStorage.Default.SetAsync(TokenKey, auth.Token);
-            Preferences.Default.Set(ExpiryKey, auth.Expiry.Ticks);
+            await _secrets.SetAsync(TokenKey, auth.Token);
+            _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
             return true;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
@@ -141,10 +147,10 @@ public class AuthService : IAuthService
     /// </remarks>
     public async Task LogoutAsync()
     {
-        SecureStorage.Default.Remove(TokenKey);
-        Preferences.Default.Remove(ExpiryKey);
-        Preferences.Default.Remove(SyncService.LastSyncKey);
-        Preferences.Default.Remove(LocalSettings.StampKey);
+        _secrets.Remove(TokenKey);
+        _prefs.Remove(ExpiryKey);
+        _prefs.Remove(SyncService.LastSyncKey);
+        _prefs.Remove(LocalSettings.StampKey);
 
         try
         {
@@ -170,10 +176,10 @@ public class AuthService : IAuthService
     {
         try
         {
-            var token = await SecureStorage.Default.GetAsync(TokenKey);
+            var token = await _secrets.GetAsync(TokenKey);
             if (string.IsNullOrEmpty(token)) return false;
 
-            var expiryTicks = Preferences.Default.Get<long>(ExpiryKey, 0);
+            var expiryTicks = _prefs.Get<long>(ExpiryKey, 0);
             if (expiryTicks == 0) return false;
 
             var expiry = new DateTime(expiryTicks, DateTimeKind.Utc);
@@ -181,7 +187,7 @@ public class AuthService : IAuthService
         }
         catch (Exception ex)
         {
-            // SecureStorage throws on some devices when the keystore is unavailable.
+            // The keystore is unavailable on some devices, and throws rather than returning null.
             _logger.LogError(ex, "Could not read the stored token; treating the user as signed out.");
             return false;
         }
@@ -191,7 +197,7 @@ public class AuthService : IAuthService
     {
         try
         {
-            var token = await SecureStorage.Default.GetAsync(TokenKey);
+            var token = await _secrets.GetAsync(TokenKey);
             if (string.IsNullOrEmpty(token)) return null;
 
             var parts = token.Split('.');
@@ -228,11 +234,11 @@ public class AuthService : IAuthService
     {
         try
         {
-            return await SecureStorage.Default.GetAsync(TokenKey);
+            return await _secrets.GetAsync(TokenKey);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Could not read the stored token from SecureStorage.");
+            _logger.LogError(ex, "Could not read the stored token from secure storage.");
             return null;
         }
     }

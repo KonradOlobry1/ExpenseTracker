@@ -24,6 +24,11 @@ jobs:
       - name: Domain tests
         run: dotnet test ExpenseTracker.Domain.Tests -c Release --logger "trx;LogFileName=domain.trx" --results-directory artifacts
 
+      # The device half of sync — conflict resolution, tombstones, the settings merge and
+      # sign-out — driven through a fake preference store and a stubbed API.
+      - name: Sync client tests
+        run: dotnet test ExpenseTracker.Infrastructure.Tests -c Release --logger "trx;LogFileName=infrastructure.trx" --results-directory artifacts
+
       # Boots the real API against in-memory SQLite, so no database or secrets are needed.
       - name: API integration tests
         run: dotnet test ExpenseTracker.Api.Tests -c Release --logger "trx;LogFileName=api.trx" --results-directory artifacts

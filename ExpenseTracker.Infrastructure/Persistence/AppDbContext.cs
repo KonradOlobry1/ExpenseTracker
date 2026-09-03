@@ -26,8 +26,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             b.HasKey(c => c.Id);
             b.Property(c => c.Name).IsRequired().HasMaxLength(64);
-            // Filtered so a soft-deleted category does not permanently reserve its name.
-            b.HasIndex(c => c.Name).IsUnique().HasFilter("IsDeleted = 0");
+            // Deliberately NOT unique, and it used to be. SyncId is the identity on both sides
+            // of sync, and the cloud allows two categories to share a name — so a category
+            // created in the browser could arrive here and collide with a local one. That
+            // failed the whole pull with "UNIQUE constraint failed: Categories.Name", and
+            // because sync swallows and logs its errors, the device would simply stop syncing
+            // until the name changed. Duplicate names are a UI concern; they are rejected when
+            // the user types one, which is the right place and the only place that can ask.
+            b.HasIndex(c => c.Name);
             b.Property(c => c.SyncId).HasDefaultValueSql(syncIdDefault);
             b.HasQueryFilter(c => !c.IsDeleted);
         });

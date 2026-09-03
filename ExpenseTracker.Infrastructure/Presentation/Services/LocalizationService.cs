@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Domain.ValueObjects;
 using ExpenseTracker.Localization;
 
@@ -8,6 +9,9 @@ public class LocalizationService : ILocalizationService
 {
     private const string PrefKey = "app_language";
 
+    private readonly IPreferenceStore _prefs;
+    private readonly LocalSettings _settings;
+
     public string CurrentLanguage { get; private set; }
 
     public CultureInfo Culture { get; private set; }
@@ -16,9 +20,11 @@ public class LocalizationService : ILocalizationService
 
     public event Action? OnChanged;
 
-    public LocalizationService()
+    public LocalizationService(IPreferenceStore prefs, LocalSettings settings)
     {
-        CurrentLanguage = Languages.CodeOrDefault(Preferences.Default.Get(PrefKey, Languages.DefaultCode));
+        _prefs = prefs;
+        _settings = settings;
+        CurrentLanguage = Languages.CodeOrDefault(prefs.Get(PrefKey, Languages.DefaultCode));
         Culture = CultureInfo.CreateSpecificCulture(CurrentLanguage);
         ApplyCulture();
     }
@@ -51,8 +57,8 @@ public class LocalizationService : ILocalizationService
 
         CurrentLanguage = code;
         Culture = CultureInfo.CreateSpecificCulture(code);
-        Preferences.Default.Set(PrefKey, code);
-        LocalSettings.Touch();
+        _prefs.Set(PrefKey, code);
+        _settings.Touch();
         ApplyCulture();
         OnChanged?.Invoke();
     }

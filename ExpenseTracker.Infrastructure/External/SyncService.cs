@@ -23,6 +23,8 @@ public class SyncService : ISyncService
     private readonly ICurrencyService _currency;
     private readonly ILocalizationService _localization;
     private readonly IThemeService _theme;
+    private readonly IPreferenceStore _prefs;
+    private readonly LocalSettings _settings;
 
     public SyncService(
         IAuthService auth,
@@ -31,8 +33,12 @@ public class SyncService : ISyncService
         ILogger<SyncService> logger,
         ICurrencyService currency,
         ILocalizationService localization,
-        IThemeService theme)
+        IThemeService theme,
+        IPreferenceStore prefs,
+        LocalSettings settings)
     {
+        _prefs = prefs;
+        _settings = settings;
         _auth = auth;
         _dbFactory = dbFactory;
         _http = http;
@@ -46,15 +52,15 @@ public class SyncService : ISyncService
     {
         get
         {
-            var ticks = Preferences.Default.Get<long>(LastSyncKey, 0);
+            var ticks = _prefs.Get<long>(LastSyncKey, 0);
             return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
         }
         private set
         {
             if (value.HasValue)
-                Preferences.Default.Set(LastSyncKey, value.Value.Ticks);
+                _prefs.Set(LastSyncKey, value.Value.Ticks);
             else
-                Preferences.Default.Remove(LastSyncKey);
+                _prefs.Remove(LastSyncKey);
         }
     }
 
@@ -101,7 +107,7 @@ public class SyncService : ISyncService
                     _currency.Selected.Code,
                     _localization.CurrentLanguage,
                     _theme.IsDarkMode,
-                    LocalSettings.UpdatedAt));
+                    _settings.UpdatedAt));
 
             using var pushRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/sync/push");
             pushRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -343,13 +349,13 @@ public class SyncService : ISyncService
     /// </remarks>
     private void ApplyPulledSettings(SyncSettingsDto? settings)
     {
-        if (settings is null || settings.UpdatedAt <= LocalSettings.UpdatedAt) return;
+        if (settings is null || settings.UpdatedAt <= _settings.UpdatedAt) return;
 
         _currency.SetCurrency(settings.Currency);
         _localization.SetLanguage(settings.Language);
         _theme.SetDarkMode(settings.IsDarkMode);
 
-        LocalSettings.UpdatedAt = settings.UpdatedAt;
+        _settings.UpdatedAt = settings.UpdatedAt;
     }
 
 }

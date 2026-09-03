@@ -2,6 +2,7 @@
 using ExpenseTracker.Application.Services;
 using ExpenseTracker.Domain.Interfaces.Repositories;
 using ExpenseTracker.Infrastructure.External;
+using ExpenseTracker.Infrastructure.Platform;
 using ExpenseTracker.Infrastructure.Persistence;
 using ExpenseTracker.Infrastructure.Persistence.Repositories;
 using ExpenseTracker.Presentation.Services;
@@ -48,7 +49,14 @@ namespace ExpenseTracker
             builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
             builder.Services.AddScoped<IIncomeService, IncomeService>();
 
+            // ── Platform storage ──────────────────────────────────────────────
+            // The only two MAUI APIs the sync and auth services need. Behind these interfaces
+            // everything they do is ordinary code that runs — and is tested — off-device.
+            builder.Services.AddSingleton<IPreferenceStore, MauiPreferenceStore>();
+            builder.Services.AddSingleton<ISecureStore, MauiSecureStore>();
+
             // ── Presentation — UI Services (singletons — shared app state) ────
+            builder.Services.AddSingleton<LocalSettings>();
             builder.Services.AddSingleton<ICurrencyService, CurrencyService>();
             builder.Services.AddSingleton<IThemeService, ThemeService>();
             builder.Services.AddSingleton<ILocalizationService, LocalizationService>();

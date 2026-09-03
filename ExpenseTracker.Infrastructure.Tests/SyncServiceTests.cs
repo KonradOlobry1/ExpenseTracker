@@ -1,0 +1,262 @@
+﻿using System.Net;
+using ExpenseTracker.Contracts;
+using ExpenseTracker.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using static ExpenseTracker.Infrastructure.Tests.SyncHarness;
+
+namespace ExpenseTracker.Infrastructure.Tests;
+
+/// <summary>
+/// The device half of sync. The server half has its own suite; these cover what happens on
+/// the phone when a delta arrives, which is where a mistake silently corrupts local data.
+/// </summary>
+public class PulledDataTests
+{
+    [Fact]
+    public async Task A_pulled_row_is_inserted()
+    {
+        using var h = new SyncHarness();
+        var categoryId = Guid.NewGuid();
+        var expenseId = Guid.NewGuid();
+
+        h.Api.PullResponse = new SyncPullResponse(
+            [Expense(expenseId, categoryId, 42.50m, "From the cloud")],
+            null, null,
+            [Category(categoryId)],
+            DateTime.UtcNow, null);
+
+        await h.SyncOrExplainAsync();
+
+        await using var db = h.NewDbContext();
+        var expense = await db.Expenses.SingleAsync();
+        Assert.Equal(expenseId, expense.SyncId);
+        Assert.Equal(42.50m, expense.Amount);
+    }
+
+    [Fact]
+    public async Task A_pulled_category_may_share_a_name_with_a_local_one()
+    {
+        // The cloud does not constrain category names — that index was removed when it made
+        // pushes fail — so a category created in the browser can arrive here named "Food"
+        // while the built-in "Food" already exists under a different SyncId. The device held a
+        // unique index on Name, which failed the entire pull. Sync logs its errors rather than
+        // surfacing them, so the symptom was a phone that quietly stopped syncing altogether.
+        using var h = new SyncHarness();
+
+        h.Api.PullResponse = new SyncPullResponse(
+            null, null, null, [Category(Guid.NewGuid(), "Food")], DateTime.UtcNow, null);
+
+        await h.SyncOrExplainAsync();
+
+        await using var db = h.NewDbContext();
+        Assert.Equal(2, await db.Categories.CountAsync(c => c.Name == "Food"));
+    }
+
+    [Fact]
+    public async Task A_pulled_tombstone_deletes_the_local_row_rather_than_inserting_it()
+    {
+        // The defect this guards: UpsertPulledData inserts anything it cannot find locally.
+        // A tombstone for a row this device already deleted must not come back as a new row.
+        using var h = new SyncHarness();
+        var categoryId = Guid.NewGuid();
+        var expenseId = Guid.NewGuid();
+
+        h.Api.PullResponse = new SyncPullResponse(
+            [Expense(expenseId, categoryId, 10m, "Doomed")], null, null,
+            [Category(categoryId)], DateTime.UtcNow, null);
+        await h.Sync.SyncAsync();
+
+        h.Api.PullResponse = new SyncPullResponse(
+            [Expense(expenseId, categoryId, 10m, "Doomed", isDeleted: true)], null, null,
+            null, DateTime.UtcNow, null);
+        await h.Sync.SyncAsync();
+
+        await using var db = h.NewDbContext();
+        Assert.Empty(await db.Expenses.ToListAsync());                       // hidden by the filter
+        Assert.True((await db.Expenses.IgnoreQueryFilters().SingleAsync()).IsDeleted);
+    }
+
+    [Fact]
+    public async Task A_locally_deleted_row_is_pushed_as_a_tombstone()
+    {
+        // A delete that never leaves the device would be undone by the next pull.
+        using var h = new SyncHarness();
+        var categoryId = Guid.NewGuid();
+
+        h.Api.PullResponse = new SyncPullResponse(
+            null, null, null, [Category(categoryId)], DateTime.UtcNow, null);
+        await h.Sync.SyncAsync();
+
+        await using (var db = h.NewDbContext())
+        {
+            var category = await db.Categories.SingleAsync(c => c.SyncId == categoryId);
+            db.Expenses.Add(new Expense
+            {
+                SyncId = Guid.NewGuid(), Description = "Deleted locally", Amount = 5m,
+                Date = DateTime.UtcNow, CategoryId = category.Id,
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow, IsDeleted = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await h.Sync.SyncAsync();
+
+        var pushed = h.Api.Pushes[^1].Expenses!;
+        Assert.True(Assert.Single(pushed).IsDeleted);
+    }
+}
+
+public class SyncSettingsTests
+{
+    [Fact]
+    public async Task A_device_that_has_never_chosen_anything_pushes_the_minimum_stamp()
+    {
+        // So it always loses to whatever the account holds: reinstalling must not reset it.
+        using var h = new SyncHarness();
+
+        await h.Sync.SyncAsync();
+
+        Assert.Equal(DateTime.MinValue, h.Api.Pushes[^1].Settings!.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Newer_settings_from_the_account_are_adopted()
+    {
+        using var h = new SyncHarness();
+        h.Api.PullResponse = new SyncPullResponse(
+            null, null, null, null, DateTime.UtcNow, SettingsDto("PLN", "pl", dark: true));
+
+        await h.Sync.SyncAsync();
+
+        Assert.Equal("PLN", h.Currency.Selected.Code);
+        Assert.Equal("pl", h.Localization.CurrentLanguage);
+        Assert.True(h.Theme.IsDarkMode);
+    }
+
+    [Fact]
+    public async Task Older_settings_from_the_account_are_ignored()
+    {
+        using var h = new SyncHarness();
+        h.Currency.SetCurrency("EUR");                    // a local choice, stamped now
+
+        h.Api.PullResponse = new SyncPullResponse(
+            null, null, null, null, DateTime.UtcNow,
+            SettingsDto("PLN", "pl", updatedAt: new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        await h.Sync.SyncAsync();
+
+        Assert.Equal("EUR", h.Currency.Selected.Code);
+    }
+
+    [Fact]
+    public async Task Adopting_settings_keeps_the_accounts_stamp_rather_than_restamping_them()
+    {
+        // The setters mark preferences as locally edited. Left alone, the next sync would push
+        // these values back as if this device had chosen them, and they would beat a genuinely
+        // newer edit made elsewhere purely by having been re-stamped.
+        using var h = new SyncHarness();
+        var accountStamp = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        h.Api.PullResponse = new SyncPullResponse(
+            null, null, null, null, DateTime.UtcNow, SettingsDto(updatedAt: accountStamp));
+
+        await h.Sync.SyncAsync();
+
+        Assert.Equal(accountStamp, h.Settings.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task An_unknown_language_from_the_account_does_not_take_the_app_down()
+    {
+        // CreateSpecificCulture throws on a code it does not recognise, and these values now
+        // arrive from another device rather than only from this build's own list.
+        using var h = new SyncHarness();
+        h.Api.PullResponse = new SyncPullResponse(
+            null, null, null, null, DateTime.UtcNow, SettingsDto("PLN", "kl"));
+
+        Assert.True(await h.Sync.SyncAsync());
+        Assert.Equal("en", h.Localization.CurrentLanguage);
+    }
+}
+
+public class SyncFailureTests
+{
+    [Fact]
+    public async Task A_failed_push_leaves_the_sync_marker_untouched()
+    {
+        // The delta is computed from this marker. Advancing it after a failed push would make
+        // the next sync skip exactly the rows that never arrived — a silent data loss.
+        using var h = new SyncHarness();
+        h.Api.PushStatus = HttpStatusCode.InternalServerError;
+
+        Assert.False(await h.Sync.SyncAsync());
+        Assert.Null(h.Sync.LastSyncTime);
+    }
+
+    [Fact]
+    public async Task A_successful_sync_advances_the_marker()
+    {
+        using var h = new SyncHarness();
+
+        Assert.True(await h.Sync.SyncAsync());
+        Assert.NotNull(h.Sync.LastSyncTime);
+    }
+
+    [Fact]
+    public async Task A_second_sync_asks_only_for_what_changed()
+    {
+        using var h = new SyncHarness();
+
+        await h.Sync.SyncAsync();
+        await h.Sync.SyncAsync();
+
+        Assert.DoesNotContain("since=", h.Api.PullUrls[0]);
+        Assert.Contains("since=", h.Api.PullUrls[1]);
+    }
+
+    [Fact]
+    public async Task Sync_does_nothing_when_signed_out()
+    {
+        using var h = new SyncHarness(signedIn: false);
+
+        Assert.False(await h.Sync.SyncAsync());
+        Assert.Empty(h.Api.Pushes);
+    }
+}
+
+public class LogoutTests
+{
+    [Fact]
+    public async Task Signing_out_clears_the_replica_and_both_markers()
+    {
+        // Leaving them behind meant signing in as somebody else kept the previous account's
+        // rows on screen — and the next edit to one pushed it into the new account.
+        using var h = new SyncHarness();
+        var categoryId = Guid.NewGuid();
+
+        h.Api.PullResponse = new SyncPullResponse(
+            [Expense(Guid.NewGuid(), categoryId, 10m, "Previous account")], null, null,
+            [Category(categoryId, "Custom")], DateTime.UtcNow, SettingsDto());
+        await h.Sync.SyncAsync();
+
+        await h.Auth.LogoutAsync();
+
+        await using var db = h.NewDbContext();
+        Assert.Empty(await db.Expenses.IgnoreQueryFilters().ToListAsync());
+        Assert.Null(h.Sync.LastSyncTime);
+        Assert.Equal(DateTime.MinValue, h.Settings.UpdatedAt);
+        Assert.False(await h.Auth.IsLoggedInAsync());
+    }
+
+    [Fact]
+    public async Task Signing_out_keeps_the_server_URL()
+    {
+        // It describes the server, not the account. Clearing it left the next sign-in with an
+        // empty Server URL field, which fails before any request and reads as a bad password.
+        using var h = new SyncHarness();
+
+        await h.Auth.LogoutAsync();
+
+        Assert.Equal("https://stub.local", h.Auth.ApiBaseUrl);
+    }
+}

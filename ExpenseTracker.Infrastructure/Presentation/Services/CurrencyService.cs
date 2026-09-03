@@ -1,20 +1,26 @@
 using System.Globalization;
+using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Domain.ValueObjects;
 
 namespace ExpenseTracker.Presentation.Services;
 
 public class CurrencyService : ICurrencyService
 {
-    private const string PrefsKey = "selected_currency";
+    private const string PrefKey = "selected_currency";
+
+    private readonly IPreferenceStore _prefs;
+    private readonly LocalSettings _settings;
+
+    public CurrencyService(IPreferenceStore prefs, LocalSettings settings)
+    {
+        _prefs = prefs;
+        _settings = settings;
+        Selected = Currencies.FromCodeOrDefault(prefs.Get(PrefKey, Currencies.Default.Code));
+    }
 
     public IReadOnlyList<CurrencyInfo> Available => Currencies.All;
     public CurrencyInfo Selected { get; private set; }
     public event Action? OnChanged;
-
-    public CurrencyService()
-    {
-        Selected = Currencies.FromCodeOrDefault(Preferences.Get(PrefsKey, Currencies.Default.Code));
-    }
 
     public void SetCurrency(string code)
     {
@@ -22,8 +28,8 @@ public class CurrencyService : ICurrencyService
         if (currency is null || currency == Selected) return;
 
         Selected = currency;
-        Preferences.Set(PrefsKey, code);
-        LocalSettings.Touch();
+        _prefs.Set(PrefKey, code);
+        _settings.Touch();
         OnChanged?.Invoke();
     }
 

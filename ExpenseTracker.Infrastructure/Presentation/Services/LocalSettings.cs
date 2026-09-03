@@ -1,3 +1,5 @@
+using ExpenseTracker.Application.Interfaces;
+
 namespace ExpenseTracker.Presentation.Services;
 
 /// <summary>
@@ -13,20 +15,23 @@ namespace ExpenseTracker.Presentation.Services;
 /// it can only ever lose — a fresh install adopts the account's settings instead of pushing
 /// its defaults over them.
 /// </remarks>
-public static class LocalSettings
+public class LocalSettings(IPreferenceStore prefs)
 {
     public const string StampKey = "settings_updated_at";
 
-    public static DateTime UpdatedAt
+    public DateTime UpdatedAt
     {
         get
         {
-            var ticks = Preferences.Default.Get<long>(StampKey, 0);
+            var ticks = prefs.Get<long>(StampKey, 0);
             return ticks == 0 ? DateTime.MinValue : new DateTime(ticks, DateTimeKind.Utc);
         }
-        set => Preferences.Default.Set(StampKey, value.Ticks);
+        set => prefs.Set(StampKey, value.Ticks);
     }
 
     /// <summary>Marks the preferences as changed on this device, now.</summary>
-    public static void Touch() => UpdatedAt = DateTime.UtcNow;
+    public void Touch() => UpdatedAt = DateTime.UtcNow;
+
+    /// <summary>Forgets the stamp, so the next sync adopts whatever the account holds.</summary>
+    public void Clear() => prefs.Remove(StampKey);
 }

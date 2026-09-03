@@ -55,8 +55,9 @@ public class ApiDbContext(DbContextOptions<ApiDbContext> options)
             // Deliberately NOT unique on (UserId, Name). SyncId is the identity here, and a
             // device may legitimately push a category whose name matches a built-in one —
             // enforcing name uniqueness made the whole push fail with a 500.
-            // The device database keeps its unique name index; it has a single user and a UI
-            // that can reject duplicates up front.
+            // The device database used to keep a unique name index, on the reasoning that it
+            // has a single user. That was wrong in the other direction: a category created in
+            // the browser then failed to pull onto the phone. Neither side constrains names.
             b.HasIndex(c => new { c.UserId, c.Name });
         });
 
