@@ -37,6 +37,16 @@
     <PackageVersion Include="Microsoft.UI.Xaml" Version="2.8.7" />
   </ItemGroup>
 
+  <ItemGroup Label="Networking">
+    <!-- AddHttpClient itself; not part of the shared framework outside an ASP.NET Core host,
+         and the MAUI head is not one. -->
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
+    <!-- AddStandardResilienceHandler — retry, circuit breaker and timeouts in one call, the
+         same shape EnableRetryOnFailure gives the EF side. Tracks its own release cadence,
+         not the shared framework's, hence the different major version. -->
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="9.10.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Tooling">
     <!-- Development only: Swagger is registered behind IsDevelopment(). -->
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.9.0" />

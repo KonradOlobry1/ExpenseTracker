@@ -76,6 +76,8 @@
         <PackageReference Include="Microsoft.Maui.Controls" VersionOverride="$(MauiVersion)" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" VersionOverride="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" />
+        <PackageReference Include="Microsoft.Extensions.Http" />
+        <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
         <PackageReference Include="Microsoft.UI.Xaml" />
         <PackageReference Include="MudBlazor" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />

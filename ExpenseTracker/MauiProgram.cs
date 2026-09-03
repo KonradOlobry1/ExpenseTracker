@@ -62,9 +62,17 @@ namespace ExpenseTracker
             builder.Services.AddSingleton<ILocalizationService, LocalizationService>();
 
             // ── Infrastructure — External Services ────────────────────────────
-            builder.Services.AddScoped<HttpClient>();
-            builder.Services.AddScoped<IAuthService, AuthService>();
-            builder.Services.AddScoped<ISyncService, SyncService>();
+            // AddHttpClient injects a pooled, resilience-wrapped HttpClient into the existing
+            // `HttpClient http` constructor parameter on each — same idea as EnableRetryOnFailure
+            // on the EF side, for the calls that don't go through EF: sync push/pull and login
+            // hit the same Azure SQL cold-start window the database retry already covers.
+            // This also moves both services from Scoped to Transient, which AddHttpClient does
+            // by default and which is correct here — neither holds state beyond its already-
+            // Singleton dependencies.
+            builder.Services.AddHttpClient<IAuthService, AuthService>()
+                .AddStandardResilienceHandler();
+            builder.Services.AddHttpClient<ISyncService, SyncService>()
+                .AddStandardResilienceHandler();
 
             // ── Platform — Payment Capture ────────────────────────────────────
 #if ANDROID
