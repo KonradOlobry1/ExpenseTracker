@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using ExpenseTracker.Contracts;
+using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using static ExpenseTracker.Infrastructure.Tests.SyncHarness;
@@ -295,14 +296,15 @@ public class LogoutTests
     }
 
     [Fact]
-    public async Task Signing_out_keeps_the_server_URL()
+    public async Task The_server_URL_is_a_fixed_constant_not_per_device_state()
     {
-        // It describes the server, not the account. Clearing it left the next sign-in with an
-        // empty Server URL field, which fails before any request and reads as a bad password.
+        // It used to be a preference the user could set, and a stray value left behind on a
+        // device had no UI to fix it. Signing out — or anything else — must not change it.
         using var h = new SyncHarness();
 
         await h.Auth.LogoutAsync();
 
-        Assert.Equal("https://stub.local", h.Auth.ApiBaseUrl);
+        IAuthService authInterface = h.Auth;
+        Assert.Equal(ExpenseTracker.Infrastructure.External.AuthService.ApiBaseUrl, authInterface.ApiBaseUrl);
     }
 }

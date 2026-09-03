@@ -14,7 +14,6 @@ public class AuthService : IAuthService
 {
     private const string TokenKey = "jwt_token";
     private const string ExpiryKey = "jwt_expiry";
-    private const string ApiUrlKey = "api_base_url";
 
     private readonly HttpClient _http;
     private readonly ILogger<AuthService> _logger;
@@ -36,36 +35,20 @@ public class AuthService : IAuthService
         _secrets = secrets;
     }
 
-    // A fresh install has no saved preference, and an empty base URL aborts login before the
-    // request leaves the device — which surfaced as "invalid credentials". Defaulting to the
-    // hosted service means the field arrives filled in; self-hosters overwrite it on the
-    // login page and their value is what gets persisted.
-    public const string DefaultApiBaseUrl =
+    // Fixed, not a preference. It used to be user-editable and read from Preferences with
+    // this as the fallback; nothing in the app ever needed a different value on a real device,
+    // and a stale one from development had no way to be fixed short of clearing app storage.
+    // Point a build at another server by changing this constant.
+    public const string ApiBaseUrl =
         "https://expensetracker-e7bgaqgsbjhwarau.polandcentral-01.azurewebsites.net";
 
-    public string? ApiBaseUrl
-    {
-        get => _prefs.Get<string?>(ApiUrlKey, DefaultApiBaseUrl);
-        set
-        {
-            if (value is not null)
-                _prefs.Set(ApiUrlKey, value);
-            else
-                _prefs.Remove(ApiUrlKey);
-        }
-    }
+    string IAuthService.ApiBaseUrl => ApiBaseUrl;
 
     public async Task<bool> LoginAsync(string email, string password, CancellationToken ct = default)
     {
         try
         {
-            var baseUrl = ApiBaseUrl?.TrimEnd('/');
-            if (string.IsNullOrEmpty(baseUrl))
-            {
-                _logger.LogWarning("Login aborted: no API base URL configured.");
-                return false;
-            }
-
+            var baseUrl = ApiBaseUrl.TrimEnd('/');
             var response = await _http.PostAsJsonAsync(
                 $"{baseUrl}/api/auth/login", new { Email = email, Password = password }, ct);
 
@@ -97,13 +80,7 @@ public class AuthService : IAuthService
     {
         try
         {
-            var baseUrl = ApiBaseUrl?.TrimEnd('/');
-            if (string.IsNullOrEmpty(baseUrl))
-            {
-                _logger.LogWarning("Registration aborted: no API base URL configured.");
-                return false;
-            }
-
+            var baseUrl = ApiBaseUrl.TrimEnd('/');
             var response = await _http.PostAsJsonAsync(
                 $"{baseUrl}/api/auth/register", new { Email = email, Password = password }, ct);
 
@@ -142,8 +119,7 @@ public class AuthService : IAuthService
     /// worse, the next edit to one of them pushed it into the new account. The replica is a
     /// cache of one account's data; it has no meaning once that account is signed out.
     ///
-    /// The API base URL deliberately survives: it describes the server, not the account, and
-    /// clearing it would make the next sign-in fail with an empty Server URL field.
+    /// The API base URL is not touched — it is a fixed constant now, not per-device state.
     /// </remarks>
     public async Task LogoutAsync()
     {

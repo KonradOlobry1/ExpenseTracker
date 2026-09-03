@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using ExpenseTracker.Application.Interfaces;
 
 namespace ExpenseTracker.Api.Web;
@@ -20,7 +20,7 @@ public class WebAuthService(IHttpContextAccessor accessor) : IAuthService
     private ClaimsPrincipal? User => accessor.HttpContext?.User;
 
     /// <summary>Not meaningful on the web — the UI and the database are the same deployment.</summary>
-    public string? ApiBaseUrl { get; set; }
+    public string ApiBaseUrl => string.Empty;
 
     public Task<bool> IsLoggedInAsync()
         => Task.FromResult(User?.Identity?.IsAuthenticated ?? false);

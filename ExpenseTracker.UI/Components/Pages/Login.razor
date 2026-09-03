@@ -1,4 +1,4 @@
-@page "/login"
+﻿@page "/login"
 @inject IAuthService AuthService
 @inject NavigationManager Nav
 @inject ILocalizationService L
@@ -83,10 +83,8 @@
 </MudPaper>
 
 @code {
-    // The server address is no longer asked for. It defaults to the hosted service in
-    // AuthService.DefaultApiBaseUrl, which is right for everyone who is not developing this
-    // app — and the field, being empty on a fresh install, used to make a perfectly good
-    // password look wrong. Point a build at another server by changing that constant.
+    // The server address is not asked for — it is a fixed constant (AuthService.ApiBaseUrl),
+    // not a per-device setting. There is exactly one production server.
 
     string _signInEmail = "";
     string _signInPassword = "";

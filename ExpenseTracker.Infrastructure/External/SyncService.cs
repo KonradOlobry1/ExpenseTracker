@@ -84,12 +84,7 @@ public class SyncService : ISyncService
                 return false;
             }
 
-            var baseUrl = _auth.ApiBaseUrl?.TrimEnd('/');
-            if (string.IsNullOrEmpty(baseUrl))
-            {
-                _logger.LogWarning("Sync aborted: no API base URL configured.");
-                return false;
-            }
+            var baseUrl = _auth.ApiBaseUrl.TrimEnd('/');
 
             var lastSync = LastSyncTime;
 

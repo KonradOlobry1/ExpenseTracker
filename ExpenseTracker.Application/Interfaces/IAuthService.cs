@@ -27,5 +27,11 @@ public interface IAuthService
     Task<bool> HasStoredSessionAsync();
     Task<UserInfo?> GetCurrentUserAsync();
     Task<string?> GetTokenAsync();
-    string? ApiBaseUrl { get; set; }
+
+    /// <summary>
+    /// The API this client talks to. Fixed per build — there is exactly one production
+    /// server, and letting it vary at run time only ever meant a stale value from
+    /// development surviving into a signed-in device with no way for the user to fix it.
+    /// </summary>
+    string ApiBaseUrl { get; }
 }

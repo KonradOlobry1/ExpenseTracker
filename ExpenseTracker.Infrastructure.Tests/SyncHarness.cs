@@ -185,9 +185,11 @@ public sealed class SyncHarness : IDisposable
     /// </summary>
     public void SignIn(DateTime? expiry = null)
     {
+        // ApiBaseUrl is a fixed constant now, not per-device state, so signing in only means
+        // storing the token and expiry — StubApi answers any host, so the constant's actual
+        // value is irrelevant here.
         Secrets.SetAsync("jwt_token", "stub-token").GetAwaiter().GetResult();
         Prefs.Set("jwt_expiry", (expiry ?? DateTime.UtcNow.AddHours(24)).Ticks);
-        Auth.ApiBaseUrl = "https://stub.local";
     }
 
     public AppDbContext NewDbContext() => DbFactory.CreateDbContext();
