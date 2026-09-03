@@ -1,9 +1,19 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ExpenseTracker.Contracts;
 
 namespace ExpenseTracker.Api.Tests;
 
+/// <summary>
+/// Helpers for driving the API over HTTP the way a real client does.
+/// </summary>
+/// <remarks>
+/// The payload types come from ExpenseTracker.Contracts rather than being re-declared here.
+/// Hand-copied records made the suite agree with itself instead of with the server: a field
+/// added to the contract simply would not appear in the test's copy, and every assertion
+/// would keep passing.
+/// </remarks>
 internal static class TestClient
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
@@ -28,35 +38,10 @@ internal static class TestClient
 
     public record AuthResponse(string Token, DateTime Expiry);
 
-    public record PushExpense(Guid SyncId, string Description, decimal Amount, DateTime Date,
-        Guid CategorySyncId, string? Notes, DateTime CreatedAt, DateTime? UpdatedAt,
-        bool IsDeleted = false);
-
-
-    public record PushCategory(Guid SyncId, string Name, string Icon, string Color,
-        bool IsSystem, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted = false);
-
-    public record PushSettings(string Currency, string Language, bool IsDarkMode, DateTime UpdatedAt);
-
-    public record PushPayload(
-        List<PushExpense>? Expenses = null,
-        List<object>? Incomes = null,
-        List<object>? Subscriptions = null,
-        List<PushCategory>? Categories = null,
-        PushSettings? Settings = null);
-
-    public record PullResponse(
-        List<PushExpense>? Expenses,
-        List<object>? Incomes,
-        List<object>? Subscriptions,
-        List<PushCategory>? Categories,
-        DateTime ServerTime,
-        PushSettings? Settings);
-
-    public static PushCategory Category(Guid id, string name = "Food", bool isDeleted = false)
+    public static SyncCategoryDto Category(Guid id, string name = "Food", bool isDeleted = false)
         => new(id, name, "restaurant", "#F44336", true, new DateTime(2026, 1, 1), null, isDeleted);
 
-    public static PushExpense Expense(Guid id, Guid categoryId, decimal amount = 10m,
+    public static SyncExpenseDto Expense(Guid id, Guid categoryId, decimal amount = 10m,
         string description = "Test", DateTime? updatedAt = null, bool isDeleted = false)
         => new(id, description, amount, new DateTime(2026, 1, 15), categoryId, null,
                new DateTime(2026, 1, 15), updatedAt, isDeleted);

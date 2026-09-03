@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="ExpenseTracker.Domain/ExpenseTracker.Domain.csproj" />
+    <Project Path="ExpenseTracker.Contracts/ExpenseTracker.Contracts.csproj" />
     <Project Path="ExpenseTracker.Application/ExpenseTracker.Application.csproj" />
     <Project Path="ExpenseTracker.Infrastructure/ExpenseTracker.Infrastructure.csproj" />
     <Project Path="ExpenseTracker.UI/ExpenseTracker.UI.csproj" />

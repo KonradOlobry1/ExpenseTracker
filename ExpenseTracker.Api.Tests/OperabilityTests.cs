@@ -1,5 +1,6 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
+using ExpenseTracker.Contracts;
 using Microsoft.AspNetCore.Hosting;
 using static ExpenseTracker.Api.Tests.TestClient;
 
@@ -52,7 +53,7 @@ public class SyncRateLimitTests(SyncRateLimitFactory factory) : IClassFixture<Sy
         var statuses = new List<HttpStatusCode>();
         for (var i = 0; i < 8; i++)
         {
-            var response = await client.PostAsJsonAsync("/api/sync/push", new PushPayload());
+            var response = await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest());
             statuses.Add(response.StatusCode);
         }
 
@@ -68,9 +69,9 @@ public class SyncRateLimitTests(SyncRateLimitFactory factory) : IClassFixture<Sy
         var bob = await factory.RegisterAsync();
 
         for (var i = 0; i < 8; i++)
-            await alice.PostAsJsonAsync("/api/sync/push", new PushPayload());
+            await alice.PostAsJsonAsync("/api/sync/push", new SyncPushRequest());
 
-        var bobsFirstSync = await bob.PostAsJsonAsync("/api/sync/push", new PushPayload());
+        var bobsFirstSync = await bob.PostAsJsonAsync("/api/sync/push", new SyncPushRequest());
 
         Assert.Equal(HttpStatusCode.OK, bobsFirstSync.StatusCode);
     }

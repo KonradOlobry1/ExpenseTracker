@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using ExpenseTracker.Contracts;
 using static ExpenseTracker.Api.Tests.TestClient;
 
 namespace ExpenseTracker.Api.Tests;
@@ -13,12 +14,12 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var categoryId = Guid.NewGuid();
         var expenseId = Guid.NewGuid();
 
-        var push = await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        var push = await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses: [Expense(expenseId, categoryId, 42.50m, "Round trip")],
             Categories: [Category(categoryId)]));
         Assert.Equal(HttpStatusCode.OK, push.StatusCode);
 
-        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
 
         var expense = Assert.Single(pulled!.Expenses!);
         Assert.Equal(expenseId, expense.SyncId);
@@ -34,14 +35,14 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var categoryId = Guid.NewGuid();
         var expenseId = Guid.NewGuid();
 
-        await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses: [Expense(expenseId, categoryId, 10m, "Original")],
             Categories: [Category(categoryId)]));
 
-        await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses: [Expense(expenseId, categoryId, 99m, "Edited")]));
 
-        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
 
         var expense = Assert.Single(pulled!.Expenses!);
         Assert.Equal(99m, expense.Amount);
@@ -55,11 +56,11 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var bob = await factory.RegisterAsync();
         var categoryId = Guid.NewGuid();
 
-        await alice.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        await alice.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses: [Expense(Guid.NewGuid(), categoryId, 500m, "Alice's rent")],
             Categories: [Category(categoryId, "Housing")]));
 
-        var bobsPull = await (await bob.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var bobsPull = await (await bob.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
 
         Assert.Empty(bobsPull!.Expenses ?? []);
         // Bob has his own seeded built-ins, but none of Alice's rows.
@@ -76,12 +77,12 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var shared = new Guid("11111111-0000-0000-0000-000000000001");
 
         await alice.PostAsJsonAsync("/api/sync/push",
-            new PushPayload(Categories: [Category(shared, "Food")]));
+            new SyncPushRequest(Categories: [Category(shared, "Food")]));
         var bobPush = await bob.PostAsJsonAsync("/api/sync/push",
-            new PushPayload(Categories: [Category(shared, "Food")]));
+            new SyncPushRequest(Categories: [Category(shared, "Food")]));
 
         Assert.Equal(HttpStatusCode.OK, bobPush.StatusCode);
-        var bobsPull = await (await bob.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var bobsPull = await (await bob.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
         Assert.Contains(bobsPull!.Categories!, c => c.SyncId == shared);
     }
 
@@ -91,17 +92,17 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var client = await factory.RegisterAsync();
         var categoryId = Guid.NewGuid();
 
-        await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses: [Expense(Guid.NewGuid(), categoryId, 10m, "Before")],
             Categories: [Category(categoryId)]));
 
         var cutoff = DateTime.UtcNow;
         await Task.Delay(50);
 
-        await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses: [Expense(Guid.NewGuid(), categoryId, 20m, "After")]));
 
-        var pulled = await (await client.GetAsync($"/api/sync/pull?since={cutoff:O}")).ReadAsync<PullResponse>();
+        var pulled = await (await client.GetAsync($"/api/sync/pull?since={cutoff:O}")).ReadAsync<SyncPullResponse>();
 
         Assert.Equal("After", Assert.Single(pulled!.Expenses!).Description);
     }
@@ -112,7 +113,7 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var client = await factory.RegisterAsync();
         var categoryId = Guid.NewGuid();
 
-        await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses:
             [
                 Expense(Guid.NewGuid(), categoryId, 1m, "One"),
@@ -120,7 +121,7 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
             ],
             Categories: [Category(categoryId)]));
 
-        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
 
         Assert.Equal(2, pulled!.Expenses!.Count);
     }
@@ -129,7 +130,7 @@ public class SyncTests(ApiFactory factory) : IClassFixture<ApiFactory>
     public async Task An_empty_push_is_accepted()
     {
         var client = await factory.RegisterAsync();
-        var response = await client.PostAsJsonAsync("/api/sync/push", new PushPayload());
+        var response = await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest());
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }
@@ -147,7 +148,7 @@ public class EmptySyncIdGuardTests(ApiFactory factory) : IClassFixture<ApiFactor
         var client = await factory.RegisterAsync();
 
         var response = await client.PostAsJsonAsync("/api/sync/push",
-            new PushPayload(Categories: [Category(Guid.Empty)]));
+            new SyncPushRequest(Categories: [Category(Guid.Empty)]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -158,7 +159,7 @@ public class EmptySyncIdGuardTests(ApiFactory factory) : IClassFixture<ApiFactor
         var client = await factory.RegisterAsync();
 
         var response = await client.PostAsJsonAsync("/api/sync/push",
-            new PushPayload(Expenses: [Expense(Guid.Empty, Guid.NewGuid())]));
+            new SyncPushRequest(Expenses: [Expense(Guid.Empty, Guid.NewGuid())]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -169,7 +170,7 @@ public class EmptySyncIdGuardTests(ApiFactory factory) : IClassFixture<ApiFactor
         var client = await factory.RegisterAsync();
 
         var response = await client.PostAsJsonAsync("/api/sync/push",
-            new PushPayload(Expenses: [Expense(Guid.NewGuid(), Guid.Empty)]));
+            new SyncPushRequest(Expenses: [Expense(Guid.NewGuid(), Guid.Empty)]));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -180,19 +181,19 @@ public class EmptySyncIdGuardTests(ApiFactory factory) : IClassFixture<ApiFactor
         var client = await factory.RegisterAsync();
         var goodCategory = Guid.NewGuid();
 
-        await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses: [Expense(Guid.NewGuid(), goodCategory, 10m, "Valid")],
             Categories: [Category(goodCategory)]));
 
         // One good row, one empty-SyncId row: the whole batch must be refused.
-        await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses:
             [
                 Expense(Guid.NewGuid(), goodCategory, 20m, "Would-be valid"),
                 Expense(Guid.Empty, goodCategory, 30m, "Invalid"),
             ]));
 
-        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
 
         Assert.Equal("Valid", Assert.Single(pulled!.Expenses!).Description);
     }
@@ -210,10 +211,10 @@ public class EmptySyncIdGuardTests(ApiFactory factory) : IClassFixture<ApiFactor
             .ToList();
 
         var push = await client.PostAsJsonAsync("/api/sync/push",
-            new PushPayload(Expenses: expenses, Categories: [Category(categoryId)]));
+            new SyncPushRequest(Expenses: expenses, Categories: [Category(categoryId)]));
         Assert.Equal(HttpStatusCode.OK, push.StatusCode);
 
-        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
 
         Assert.Equal(50, pulled!.Expenses!.Count);
         Assert.Equal(
@@ -231,7 +232,7 @@ public class EmptySyncIdGuardTests(ApiFactory factory) : IClassFixture<ApiFactor
         var categoryId = Guid.NewGuid();
         var expenseId = Guid.NewGuid();
 
-        var push = await client.PostAsJsonAsync("/api/sync/push", new PushPayload(
+        var push = await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(
             Expenses:
             [
                 Expense(expenseId, categoryId, 10m, "First copy"),
@@ -240,7 +241,7 @@ public class EmptySyncIdGuardTests(ApiFactory factory) : IClassFixture<ApiFactor
             Categories: [Category(categoryId)]));
         Assert.Equal(HttpStatusCode.OK, push.StatusCode);
 
-        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
 
         Assert.Single(pulled!.Expenses!);
     }

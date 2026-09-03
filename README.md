@@ -21,7 +21,8 @@ Browser ────────────────────┘
 
 | Project | Target | Role |
 |---|---|---|
-| `ExpenseTracker.Domain` | net10.0 | Entities, repository interfaces, `PredictionEngine` |
+| `ExpenseTracker.Domain` | net10.0 | Entities, repository interfaces, `PredictionEngine`, currency and language catalogues |
+| `ExpenseTracker.Contracts` | net10.0 | The sync wire format, shared by the API, the device client and the tests |
 | `ExpenseTracker.Application` | net10.0 | Service interfaces and implementations |
 | `ExpenseTracker.Infrastructure` | net10.0 | `AppDbContext`, device repositories, SQLite migrations |
 | `ExpenseTracker.UI` | net10.0 | Shared Razor components and UI service interfaces |

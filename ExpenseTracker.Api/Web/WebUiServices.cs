@@ -75,38 +75,17 @@ public class WebCurrencyService : ICurrencyService
         _prefs = prefs;
         _account = account;
 
-        var saved = prefs.Read(PrefKeys.Currency);
-        if (saved is not null && Currencies.FirstOrDefault(c => c.Code == saved) is { } restored)
-            Selected = restored;
+        Selected = Currencies.FromCodeOrDefault(prefs.Read(PrefKeys.Currency));
     }
 
-    private static readonly List<CurrencyInfo> Currencies =
-    [
-        new("USD", "US Dollar",         "$",   "en-US"),
-        new("EUR", "Euro",              "€",   "fr-FR"),
-        new("GBP", "British Pound",     "£",   "en-GB"),
-        new("PLN", "Polish Zloty",      "zł",  "pl-PL"),
-        new("JPY", "Japanese Yen",      "¥",   "ja-JP"),
-        new("CAD", "Canadian Dollar",   "CA$", "en-CA"),
-        new("AUD", "Australian Dollar", "A$",  "en-AU"),
-        new("CHF", "Swiss Franc",       "CHF", "de-CH"),
-        new("CNY", "Chinese Yuan",      "¥",   "zh-CN"),
-        new("INR", "Indian Rupee",      "₹",   "hi-IN"),
-        new("BRL", "Brazilian Real",    "R$",  "pt-BR"),
-        new("SEK", "Swedish Krona",     "kr",  "sv-SE"),
-        new("NOK", "Norwegian Krone",   "kr",  "nb-NO"),
-        new("DKK", "Danish Krone",      "kr",  "da-DK"),
-        new("MXN", "Mexican Peso",      "$",   "es-MX"),
-        new("SGD", "Singapore Dollar",  "S$",  "en-SG"),
-    ];
 
-    public IReadOnlyList<CurrencyInfo> Available => Currencies;
-    public CurrencyInfo Selected { get; private set; } = Currencies[0];
+    public IReadOnlyList<CurrencyInfo> Available => Currencies.All;
+    public CurrencyInfo Selected { get; private set; } = Currencies.Default;
     public event Action? OnChanged;
 
     public void SetCurrency(string code)
     {
-        var currency = Currencies.FirstOrDefault(c => c.Code == code);
+        var currency = Currencies.All.FirstOrDefault(c => c.Code == code);
         if (currency is null || currency == Selected) return;
 
         Selected = currency;
@@ -161,22 +140,15 @@ public class WebLocalizationService : ILocalizationService
         _prefs = prefs;
         _account = account;
 
-        var saved = prefs.Read(PrefKeys.Language);
-        if (saved is not null && Available.Any(l => l.Code == saved))
-        {
-            CurrentLanguage = saved;
-            Culture = CultureInfo.CreateSpecificCulture(saved);
-        }
+        CurrentLanguage = Languages.CodeOrDefault(prefs.Read(PrefKeys.Language));
+        Culture = CultureInfo.CreateSpecificCulture(CurrentLanguage);
     }
 
-    public string CurrentLanguage { get; private set; } = "en";
-    public CultureInfo Culture { get; private set; } = CultureInfo.CreateSpecificCulture("en");
+    public string CurrentLanguage { get; private set; } = Languages.DefaultCode;
+    public CultureInfo Culture { get; private set; } =
+        CultureInfo.CreateSpecificCulture(Languages.DefaultCode);
 
-    public IReadOnlyList<LanguageInfo> Available { get; } =
-    [
-        new("en", "English", "🇬🇧"),
-        new("pl", "Polski",  "🇵🇱"),
-    ];
+    public IReadOnlyList<LanguageInfo> Available => Languages.All;
 
     public event Action? OnChanged;
 
@@ -188,7 +160,7 @@ public class WebLocalizationService : ILocalizationService
                 dict.TryGetValue(key, out var value))
                 return value;
 
-            if (Translations.All.TryGetValue("en", out var en) &&
+            if (Translations.All.TryGetValue(Languages.DefaultCode, out var en) &&
                 en.TryGetValue(key, out var fallback))
                 return fallback;
 
@@ -202,7 +174,7 @@ public class WebLocalizationService : ILocalizationService
     {
         // Unknown codes are ignored rather than passed to CreateSpecificCulture: the value can
         // now originate from another device's settings, not only from this app's own list.
-        if (CurrentLanguage == code || Available.All(l => l.Code != code)) return;
+        if (CurrentLanguage == code || !Languages.IsSupported(code)) return;
 
         CurrentLanguage = code;
         Culture = CultureInfo.CreateSpecificCulture(code);

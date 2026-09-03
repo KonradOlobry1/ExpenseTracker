@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <!-- No references, by design. This is the wire format both sides of sync agree on; if it
+       needed the domain entities or EF, the server's storage model would leak into the
+       contract and the device could no longer be changed independently. -->
+
+</Project>

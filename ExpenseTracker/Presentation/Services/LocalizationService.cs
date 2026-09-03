@@ -12,18 +12,13 @@ public class LocalizationService : ILocalizationService
 
     public CultureInfo Culture { get; private set; }
 
-    public IReadOnlyList<LanguageInfo> Available { get; } =
-    [
-        new("en", "English", "🇬🇧"),
-        new("pl", "Polski",  "🇵🇱"),
-    ];
+    public IReadOnlyList<LanguageInfo> Available => Languages.All;
 
     public event Action? OnChanged;
 
     public LocalizationService()
     {
-        var saved = Preferences.Default.Get(PrefKey, "en");
-        CurrentLanguage = Available.Any(l => l.Code == saved) ? saved : "en";
+        CurrentLanguage = Languages.CodeOrDefault(Preferences.Default.Get(PrefKey, Languages.DefaultCode));
         Culture = CultureInfo.CreateSpecificCulture(CurrentLanguage);
         ApplyCulture();
     }
@@ -36,7 +31,7 @@ public class LocalizationService : ILocalizationService
                 dict.TryGetValue(key, out var value))
                 return value;
 
-            if (Translations.All.TryGetValue("en", out var en) &&
+            if (Translations.All.TryGetValue(Languages.DefaultCode, out var en) &&
                 en.TryGetValue(key, out var fallback))
                 return fallback;
 
@@ -52,7 +47,7 @@ public class LocalizationService : ILocalizationService
         // An unknown code would make CreateSpecificCulture throw and take the UI with it.
         // Settings now arrive from the account, so the value is no longer only ever one this
         // build put in Preferences itself.
-        if (CurrentLanguage == code || Available.All(l => l.Code != code)) return;
+        if (CurrentLanguage == code || !Languages.IsSupported(code)) return;
 
         CurrentLanguage = code;
         Culture = CultureInfo.CreateSpecificCulture(code);

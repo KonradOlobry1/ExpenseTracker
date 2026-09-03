@@ -1,5 +1,6 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
+using ExpenseTracker.Contracts;
 using static ExpenseTracker.Api.Tests.TestClient;
 
 namespace ExpenseTracker.Api.Tests;
@@ -42,7 +43,7 @@ public class PasswordPolicyTests(ApiFactory factory) : IClassFixture<ApiFactory>
         // created from the phone had no categories server-side.
         var client = await factory.RegisterAsync();
 
-        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>();
+        var pulled = await (await client.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>();
 
         Assert.Equal(7, pulled!.Categories!.Count);
         Assert.Contains(pulled.Categories, c => c.Name == "Food");

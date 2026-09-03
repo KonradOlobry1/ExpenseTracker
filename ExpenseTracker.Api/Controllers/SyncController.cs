@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using ExpenseTracker.Api.Data;
 using ExpenseTracker.Api.DTOs;
+using ExpenseTracker.Contracts;
 using ExpenseTracker.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

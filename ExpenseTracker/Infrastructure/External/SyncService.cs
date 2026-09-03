@@ -2,6 +2,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using ExpenseTracker.Application.Interfaces;
+using ExpenseTracker.Contracts;
 using ExpenseTracker.Domain.Entities;
 using ExpenseTracker.Infrastructure.Persistence;
 using ExpenseTracker.Presentation.Services;
@@ -94,9 +95,9 @@ public class SyncService : ISyncService
             var subscriptions = await BuildSubscriptionPushItems(db, lastSync, ct);
             var categories = await BuildCategoryPushItems(db, lastSync, ct);
 
-            var pushPayload = new PushPayload(
+            var pushPayload = new SyncPushRequest(
                 expenses, incomes, subscriptions, categories,
-                new SyncSettings(
+                new SyncSettingsDto(
                     _currency.Selected.Code,
                     _localization.CurrentLanguage,
                     _theme.IsDarkMode,
@@ -115,7 +116,7 @@ public class SyncService : ISyncService
             var pullResponse = await _http.SendAsync(pullRequest, ct);
             pullResponse.EnsureSuccessStatusCode();
 
-            var pulled = await pullResponse.Content.ReadFromJsonAsync<PullResponse>(
+            var pulled = await pullResponse.Content.ReadFromJsonAsync<SyncPullResponse>(
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
 
             if (pulled is not null)
@@ -156,7 +157,7 @@ public class SyncService : ISyncService
 
     // ── Push helpers ──────────────────────────────────────────────────────────
 
-    private static async Task<List<PushExpense>> BuildExpensePushItems(
+    private static async Task<List<SyncExpenseDto>> BuildExpensePushItems(
         AppDbContext db, DateTime? lastSync, CancellationToken ct)
     {
         // IgnoreQueryFilters: soft-deleted rows are exactly what a delete needs to push.
@@ -165,12 +166,12 @@ public class SyncService : ISyncService
             query = query.Where(e => (e.UpdatedAt != null && e.UpdatedAt > lastSync)
                                   || (e.UpdatedAt == null && e.CreatedAt > lastSync));
         var items = await query.Include(e => e.Category).ToListAsync(ct);
-        return items.Select(e => new PushExpense(
+        return items.Select(e => new SyncExpenseDto(
             e.SyncId, e.Description, e.Amount, e.Date,
             e.Category.SyncId, e.Notes, e.CreatedAt, e.UpdatedAt, e.IsDeleted)).ToList();
     }
 
-    private static async Task<List<PushIncome>> BuildIncomePushItems(
+    private static async Task<List<SyncIncomeDto>> BuildIncomePushItems(
         AppDbContext db, DateTime? lastSync, CancellationToken ct)
     {
         var query = db.Incomes.IgnoreQueryFilters().AsQueryable();
@@ -178,12 +179,12 @@ public class SyncService : ISyncService
             query = query.Where(i => (i.UpdatedAt != null && i.UpdatedAt > lastSync)
                                   || (i.UpdatedAt == null && i.CreatedAt > lastSync));
         var items = await query.ToListAsync(ct);
-        return items.Select(i => new PushIncome(
+        return items.Select(i => new SyncIncomeDto(
             i.SyncId, i.Description, i.Amount, i.BillingCycle.ToString(),
             i.StartDate, i.Notes, i.IsActive, i.CreatedAt, i.UpdatedAt, i.IsDeleted)).ToList();
     }
 
-    private static async Task<List<PushSubscription>> BuildSubscriptionPushItems(
+    private static async Task<List<SyncSubscriptionDto>> BuildSubscriptionPushItems(
         AppDbContext db, DateTime? lastSync, CancellationToken ct)
     {
         var query = db.Subscriptions.IgnoreQueryFilters().AsQueryable();
@@ -191,13 +192,13 @@ public class SyncService : ISyncService
             query = query.Where(s => (s.UpdatedAt != null && s.UpdatedAt > lastSync)
                                   || (s.UpdatedAt == null && s.CreatedAt > lastSync));
         var items = await query.Include(s => s.Category).ToListAsync(ct);
-        return items.Select(s => new PushSubscription(
+        return items.Select(s => new SyncSubscriptionDto(
             s.SyncId, s.Name, s.Amount, s.BillingCycle.ToString(),
             s.StartDate, s.EndDate, s.Category.SyncId, s.Notes, s.Url,
             s.IsActive, s.CreatedAt, s.UpdatedAt, s.IsDeleted)).ToList();
     }
 
-    private static async Task<List<PushCategory>> BuildCategoryPushItems(
+    private static async Task<List<SyncCategoryDto>> BuildCategoryPushItems(
         AppDbContext db, DateTime? lastSync, CancellationToken ct)
     {
         var query = db.Categories.IgnoreQueryFilters().AsQueryable();
@@ -205,7 +206,7 @@ public class SyncService : ISyncService
             query = query.Where(c => (c.UpdatedAt != null && c.UpdatedAt > lastSync)
                                   || (c.UpdatedAt == null && c.CreatedAt > lastSync));
         var items = await query.ToListAsync(ct);
-        return items.Select(c => new PushCategory(
+        return items.Select(c => new SyncCategoryDto(
             c.SyncId, c.Name, c.Icon, c.Color, c.IsSystem, c.CreatedAt, c.UpdatedAt, c.IsDeleted)).ToList();
     }
 
@@ -215,7 +216,7 @@ public class SyncService : ISyncService
     /// a filtered query, so without this the lookup would miss it and insert a duplicate —
     /// and a pulled tombstone could never be matched to the row it is meant to delete.
     /// </remarks>
-    private static async Task UpsertPulledData(AppDbContext db, PullResponse pulled, CancellationToken ct)
+    private static async Task UpsertPulledData(AppDbContext db, SyncPullResponse pulled, CancellationToken ct)
     {
         foreach (var cat in pulled.Categories ?? [])
         {
@@ -340,7 +341,7 @@ public class SyncService : ISyncService
     /// harmless, but it would beat a concurrent edit on another device purely by being
     /// re-stamped. Restoring the server's stamp afterwards keeps the ordering honest.
     /// </remarks>
-    private void ApplyPulledSettings(SyncSettings? settings)
+    private void ApplyPulledSettings(SyncSettingsDto? settings)
     {
         if (settings is null || settings.UpdatedAt <= LocalSettings.UpdatedAt) return;
 
@@ -351,51 +352,4 @@ public class SyncService : ISyncService
         LocalSettings.UpdatedAt = settings.UpdatedAt;
     }
 
-    // ── Push DTOs ─────────────────────────────────────────────────────────────
-
-    private record PushPayload(
-        List<PushExpense> Expenses,
-        List<PushIncome> Incomes,
-        List<PushSubscription> Subscriptions,
-        List<PushCategory> Categories,
-        SyncSettings Settings);
-
-    private record PushExpense(Guid SyncId, string Description, decimal Amount, DateTime Date,
-        Guid CategorySyncId, string? Notes, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
-
-    private record PushIncome(Guid SyncId, string Description, decimal Amount, string BillingCycle,
-        DateTime StartDate, string? Notes, bool IsActive, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
-
-    private record PushSubscription(Guid SyncId, string Name, decimal Amount, string BillingCycle,
-        DateTime StartDate, DateTime? EndDate, Guid CategorySyncId, string? Notes, string? Url,
-        bool IsActive, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
-
-    private record PushCategory(Guid SyncId, string Name, string Icon, string Color,
-        bool IsSystem, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
-
-    // ── Pull DTOs ─────────────────────────────────────────────────────────────
-
-    private record PullResponse(
-        List<PulledExpense>? Expenses,
-        List<PulledIncome>? Incomes,
-        List<PulledSubscription>? Subscriptions,
-        List<PulledCategory>? Categories,
-        DateTime ServerTime,
-        SyncSettings? Settings);
-
-    /// <summary>Account-wide display preferences. One per account, replaced wholesale.</summary>
-    private record SyncSettings(string Currency, string Language, bool IsDarkMode, DateTime UpdatedAt);
-
-    private record PulledExpense(Guid SyncId, string Description, decimal Amount, DateTime Date,
-        Guid CategorySyncId, string? Notes, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
-
-    private record PulledIncome(Guid SyncId, string Description, decimal Amount, string BillingCycle,
-        DateTime StartDate, string? Notes, bool IsActive, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
-
-    private record PulledSubscription(Guid SyncId, string Name, decimal Amount, string BillingCycle,
-        DateTime StartDate, DateTime? EndDate, Guid CategorySyncId, string? Notes, string? Url,
-        bool IsActive, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
-
-    private record PulledCategory(Guid SyncId, string Name, string Icon, string Color,
-        bool IsSystem, DateTime CreatedAt, DateTime? UpdatedAt, bool IsDeleted);
 }

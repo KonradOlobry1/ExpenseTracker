@@ -1,4 +1,5 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
+using ExpenseTracker.Contracts;
 using static ExpenseTracker.Api.Tests.TestClient;
 
 namespace ExpenseTracker.Api.Tests;
@@ -10,15 +11,15 @@ namespace ExpenseTracker.Api.Tests;
 /// </summary>
 public class AccountSettingsTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
-    private static PushSettings Settings(
+    private static SyncSettingsDto Settings(
         string currency = "PLN", string language = "pl", bool dark = true, int year = 2026)
         => new(currency, language, dark, new DateTime(year, 6, 1, 0, 0, 0, DateTimeKind.Utc));
 
-    private static Task<HttpResponseMessage> PushAsync(HttpClient client, PushSettings settings)
-        => client.PostAsJsonAsync("/api/sync/push", new PushPayload(Settings: settings));
+    private static Task<HttpResponseMessage> PushAsync(HttpClient client, SyncSettingsDto settings)
+        => client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest(Settings: settings));
 
-    private static async Task<PushSettings?> PullSettingsAsync(HttpClient client)
-        => (await (await client.GetAsync("/api/sync/pull")).ReadAsync<PullResponse>())!.Settings;
+    private static async Task<SyncSettingsDto?> PullSettingsAsync(HttpClient client)
+        => (await (await client.GetAsync("/api/sync/pull")).ReadAsync<SyncPullResponse>())!.Settings;
 
     [Fact]
     public async Task A_new_account_starts_on_the_defaults()
@@ -82,7 +83,7 @@ public class AccountSettingsTests(ApiFactory factory) : IClassFixture<ApiFactory
         var client = await factory.RegisterAsync();
 
         await PushAsync(client, Settings("PLN", "pl", true));
-        await PushAsync(client, new PushSettings("USD", "en", false, DateTime.MinValue));
+        await PushAsync(client, new SyncSettingsDto("USD", "en", false, DateTime.MinValue));
 
         var settings = await PullSettingsAsync(client);
 
@@ -109,7 +110,7 @@ public class AccountSettingsTests(ApiFactory factory) : IClassFixture<ApiFactory
         var client = await factory.RegisterAsync();
 
         await PushAsync(client, Settings("PLN", "pl", true));
-        await client.PostAsJsonAsync("/api/sync/push", new PushPayload());
+        await client.PostAsJsonAsync("/api/sync/push", new SyncPushRequest());
 
         var settings = await PullSettingsAsync(client);
 
@@ -126,7 +127,7 @@ public class AccountSettingsTests(ApiFactory factory) : IClassFixture<ApiFactory
 
         var future = DateTime.UtcNow.AddYears(1);
         var pulled = await (await client.GetAsync($"/api/sync/pull?since={future:O}"))
-            .ReadAsync<PullResponse>();
+            .ReadAsync<SyncPullResponse>();
 
         Assert.Equal("PLN", pulled!.Settings!.Currency);
     }
