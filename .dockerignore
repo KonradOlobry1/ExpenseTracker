@@ -18,3 +18,4 @@ ExpenseTracker/
 ExpenseTracker.Infrastructure/
 ExpenseTracker.Domain.Tests/
 ExpenseTracker.Api.Tests/
+ExpenseTracker.Infrastructure.Tests/
