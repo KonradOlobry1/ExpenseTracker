@@ -23,6 +23,20 @@
                     ";path=/;max-age=31536000;samesite=lax";
             }
         };
+
+        // Signing out clears an auth cookie, which is a response header a circuit cannot
+        // write — same constraint that makes signing in a static page. Posting a real form
+        // gets a real response, and /account/logout redirects to the sign-in page from there.
+        // Kept a POST so the endpoint cannot be triggered by a stray link or image tag.
+        window.appAuth = {
+            signOut: function () {
+                var form = document.createElement("form");
+                form.method = "post";
+                form.action = "/account/logout";
+                document.body.appendChild(form);
+                form.submit();
+            }
+        };
     </script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="_framework/blazor.web.js"></script>

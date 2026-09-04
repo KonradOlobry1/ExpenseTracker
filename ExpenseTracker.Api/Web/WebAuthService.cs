@@ -1,5 +1,6 @@
 ﻿using System.Security.Claims;
 using ExpenseTracker.Application.Interfaces;
+using Microsoft.JSInterop;
 
 namespace ExpenseTracker.Api.Web;
 
@@ -15,7 +16,7 @@ namespace ExpenseTracker.Api.Web;
 /// The MAUI implementation of this interface does the equivalent over HTTP against the sync
 /// API and stores a JWT in SecureStorage.
 /// </remarks>
-public class WebAuthService(IHttpContextAccessor accessor) : IAuthService
+public class WebAuthService(IHttpContextAccessor accessor, IJSRuntime js) : IAuthService
 {
     private ClaimsPrincipal? User => accessor.HttpContext?.User;
 
@@ -50,6 +51,20 @@ public class WebAuthService(IHttpContextAccessor accessor) : IAuthService
     public Task<AuthResult> RegisterAsync(string email, string password, CancellationToken ct = default)
         => throw new NotSupportedException("Register via /account/login — a cookie cannot be set from a Blazor circuit.");
 
-    public Task LogoutAsync()
-        => throw new NotSupportedException("Sign out via the /account/logout form post.");
+    /// <summary>
+    /// Posts to /account/logout through JS, rather than clearing the cookie inline.
+    /// </summary>
+    /// <remarks>
+    /// This used to throw NotSupportedException, on the reasoning that a circuit cannot clear
+    /// an auth cookie so the caller should go to the endpoint itself. That reasoning was right
+    /// and the throw was still wrong: the shared Settings page calls this from a live circuit,
+    /// and an unhandled exception there does not just fail the click — it terminates the whole
+    /// circuit. Every button on every page then went dead until a manual reload, which is what
+    /// "no reaction on any button" turned out to be.
+    ///
+    /// Signing in has the same constraint and solves it with a statically rendered page. Sign
+    /// out has no page of its own, so it submits a form instead — a real request, a real
+    /// response, and the endpoint's redirect lands on the sign-in page.
+    /// </remarks>
+    public async Task LogoutAsync() => await js.InvokeVoidAsync("appAuth.signOut");
 }

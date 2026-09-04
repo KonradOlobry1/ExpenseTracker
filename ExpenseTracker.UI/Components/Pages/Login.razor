@@ -3,9 +3,14 @@
 @inject NavigationManager Nav
 @inject ILocalizationService L
 
+@* Heading and card share one centred column. The card used to carry the width cap on its
+   own, which left it pinned to the left of the layout's container — fine when the nav drawer
+   filled that space, conspicuously off-centre once signing out hid the drawer. *@
+<div class="mx-auto" style="max-width:440px">
+
 <MudText Typo="Typo.h5" Class="mb-4">@L["Login_Title"]</MudText>
 
-<MudPaper Class="pa-4" Elevation="2" Style="max-width:440px">
+<MudPaper Class="pa-4" Elevation="2">
     <MudTabs Elevation="0" Rounded="false" ApplyEffectsToContainer="true" PanelClass="pt-4">
 
         @*── Sign In ──*@
@@ -81,6 +86,8 @@
 
     </MudTabs>
 </MudPaper>
+
+</div>
 
 @code {
     // The server address is not asked for — it is a fixed constant (AuthService.ApiBaseUrl),
