@@ -47,7 +47,9 @@ yearly plan and a weekly one are comparable figures rather than raw amounts.
 
 ![Expenses](docs/screenshots/expenses.png)
 
-Expenses, filterable by date range, category and free text, paged server-side.
+Expenses, filterable by date range, category and free text. Paging and the filtered
+total are both computed in the database, so the total covers every matching row rather
+than the ten on screen.
 
 ![Income](docs/screenshots/income.png)
 

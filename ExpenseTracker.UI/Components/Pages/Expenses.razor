@@ -104,6 +104,12 @@
         var filter = new ExpenseFilter(_filterFrom, _filterTo, _filterCategoryId, null, null, _filterSearch);
         var result = await ExpenseService.GetPagedAsync(filter, state.Page, state.PageSize);
         _filteredTotal = await ExpenseService.GetFilteredSumAsync(filter);
+
+        // The total is rendered outside the grid, so the grid's own re-render does not
+        // refresh it. Without this the first paint keeps the initial 0,00 no matter how
+        // many rows loaded.
+        StateHasChanged();
+
         return new GridData<Expense> { Items = result.Items, TotalItems = result.TotalCount };
     }
 
