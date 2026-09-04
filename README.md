@@ -39,11 +39,25 @@ compiled into both heads; only the platform services behind them differ.
 
 ## Screenshots
 
-<!-- Add real captures here: docs/screenshots/*.png, then link them below.
-     Suggested set: dashboard, expenses list, subscription timeline, analytics,
-     and one phone-sized shot to show the MAUI head. -->
+![Dashboard](docs/screenshots/dashboard.png)
 
-_Coming soon._
+The dashboard: spend against income for the month, six-month history, and the current
+month split by category. Subscriptions are counted at their monthly equivalent, so a
+yearly plan and a weekly one are comparable figures rather than raw amounts.
+
+![Expenses](docs/screenshots/expenses.png)
+
+Expenses, filterable by date range, category and free text, paged server-side.
+
+![Income](docs/screenshots/income.png)
+
+Income on the same billing-cycle model as subscriptions — each entry carries its cycle and
+its monthly equivalent.
+
+![Settings](docs/screenshots/settings.png)
+
+Settings: sync state, theme, and UI language and display currency as independent choices.
+Amounts format in the culture of the selected currency, not the culture of the interface.
 
 ## Projects
 
