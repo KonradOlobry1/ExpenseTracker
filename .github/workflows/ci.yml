@@ -45,11 +45,11 @@ jobs:
     name: Container build
     runs-on: ubuntu-latest
 
-    # A real SQL Server, not a stub. Three things need one: migrations, which nothing else in
-    # CI applies — the unit suite builds its schema with EnsureCreated against SQLite, so a
-    # migration that fails on SQL Server has always slipped through. Data Protection, whose
-    # keys now live in the database, which makes it a startup dependency. And any page render,
-    # for the same reason.
+    # A real SQL Server, not a stub. Three things need one. Migrations, which nothing else in
+    # CI applies: the unit suite builds its schema with EnsureCreated against SQLite, so a
+    # provider-specific migration failure is invisible there. Data Protection, whose key ring
+    # is stored in the database, making it a startup dependency. And any page render, which
+    # needs that key ring.
     #
     # The password is a throwaway for a container that exists for the length of this job and
     # is reachable only from it. It is not a secret and is deliberately inline, so the job is

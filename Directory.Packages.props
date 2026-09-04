@@ -4,14 +4,13 @@
     Central package management: one version per package for the whole solution, pinned
     exactly.
 
-    Two problems this fixes. Versions used to be floating wildcards ("9.*"), so a restore
-    months apart could produce different binaries from the same commit. And the runtime
-    packages had been left on 9.x after every project moved to net10.0, which is the same
-    mismatch that once made a component emit Router.NotFoundPage as a plain string attribute
-    and fail to cast at run time.
+    Exact versions rather than wildcards, so a restore at any later date resolves the same
+    binaries for a given commit.
 
     Microsoft.* runtime packages track the shared framework and move together — keep them on
-    one version.
+    one version. A runtime package left behind the target framework is not a build error:
+    Blazor emits the newer component parameters as plain string attributes and fails when
+    they are cast at run time.
   -->
 
   <PropertyGroup>
