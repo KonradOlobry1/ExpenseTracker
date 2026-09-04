@@ -78,9 +78,10 @@ The sync client is testable without a device because it depends on `IPreferenceS
 `ISecureStore` rather than MAUI's statics — the MAUI head supplies the implementations and
 nothing else about sync lives there.
 
-Everything targets .NET 10. Mixing frameworks previously caused a subtle failure: a
-component compiled against ASP.NET Core 9 silently emitted `Router.NotFoundPage` — a .NET 10
-API — as a plain string attribute, which then failed to cast at run time.
+Every project targets .NET 10, and the ASP.NET Core and EF Core packages track the shared
+framework. Blazor does not diagnose a version mismatch at compile time — a component built
+against an older framework emits newer parameters as plain string attributes and fails when
+they are cast at run time — so the versions are held in step deliberately.
 
 ## Running
 
@@ -181,7 +182,7 @@ environment variables in a container or App Service:
 
 | Endpoint | Checks | Use |
 |---|---|---|
-| `/health/live` | process only, no database | Platform probe. Deliberately does not touch SQL, so it cannot keep the auto-paused free-tier database awake |
+| `/health/live` | process only, no database | Platform probe. Does not touch the database, so routine health polling cannot hold a serverless database open |
 | `/health/ready` | database reachable | Call before a first real request to warm the database, or when diagnosing |
 
 Both are anonymous.
@@ -196,11 +197,11 @@ Both are anonymous.
 - Access tokens last 24 hours; a 30-day refresh token (rotated on every use) renews one
   silently, so a device stays signed in as long as it syncs at least once a month. A device
   only sees a password prompt again once the refresh token itself has run out or been revoked.
-- Device→API HTTP calls (sync, login, refresh) retry transient failures the same way
-  `EnableRetryOnFailure` covers the database — Azure SQL's serverless tier auto-pauses, and
-  the first request after idle needs a retry to survive the wake-up window.
-- Package versions are pinned centrally in `Directory.Packages.props`. They used to float on
-  wildcards, so the same commit could restore different binaries months apart.
+- Device→API calls (sync, login, refresh) retry transient failures, matching the
+  `EnableRetryOnFailure` policy on the database side. A serverless database resumes from idle
+  on the first connection, and that request has to survive the wake-up window.
+- Package versions are pinned centrally in `Directory.Packages.props`, so any checkout of a
+  given commit restores the same binaries.
 
 ## License
 
