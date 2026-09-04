@@ -1,6 +1,10 @@
 @page "/"
+@inject IAuthService AuthService
 @inject NavigationManager Nav
 
 @code {
-    protected override void OnInitialized() => Nav.NavigateTo("/dashboard");
+    // The app's front door. It used to send everyone to the dashboard, which meant a fresh
+    // install opened straight into an empty ledger with no account behind it.
+    protected override async Task OnInitializedAsync()
+        => Nav.NavigateTo(await AuthService.HasStoredSessionAsync() ? "/dashboard" : "/login");
 }

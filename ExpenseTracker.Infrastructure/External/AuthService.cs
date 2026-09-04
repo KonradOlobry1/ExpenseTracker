@@ -1,4 +1,5 @@
 ﻿using System.Data.Common;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -14,7 +15,7 @@ public class AuthService : IAuthService
 {
     private const string TokenKey = "jwt_token";
     private const string ExpiryKey = "jwt_expiry";
-    private const string ApiUrlKey = "api_base_url";
+    private const string RefreshTokenKey = "jwt_refresh_token";
 
     private readonly HttpClient _http;
     private readonly ILogger<AuthService> _logger;
@@ -36,74 +37,56 @@ public class AuthService : IAuthService
         _secrets = secrets;
     }
 
-    // A fresh install has no saved preference, and an empty base URL aborts login before the
-    // request leaves the device — which surfaced as "invalid credentials". Defaulting to the
-    // hosted service means the field arrives filled in; self-hosters overwrite it on the
-    // login page and their value is what gets persisted.
-    public const string DefaultApiBaseUrl =
+    // Fixed, not a preference. It used to be user-editable and read from Preferences with
+    // this as the fallback; nothing in the app ever needed a different value on a real device,
+    // and a stale one from development had no way to be fixed short of clearing app storage.
+    // Point a build at another server by changing this constant.
+    public const string ApiBaseUrl =
         "https://expensetracker-e7bgaqgsbjhwarau.polandcentral-01.azurewebsites.net";
 
-    public string? ApiBaseUrl
-    {
-        get => _prefs.Get<string?>(ApiUrlKey, DefaultApiBaseUrl);
-        set
-        {
-            if (value is not null)
-                _prefs.Set(ApiUrlKey, value);
-            else
-                _prefs.Remove(ApiUrlKey);
-        }
-    }
+    string IAuthService.ApiBaseUrl => ApiBaseUrl;
 
-    public async Task<bool> LoginAsync(string email, string password, CancellationToken ct = default)
+    public async Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default)
     {
         try
         {
-            var baseUrl = ApiBaseUrl?.TrimEnd('/');
-            if (string.IsNullOrEmpty(baseUrl))
-            {
-                _logger.LogWarning("Login aborted: no API base URL configured.");
-                return false;
-            }
-
+            var baseUrl = ApiBaseUrl.TrimEnd('/');
             var response = await _http.PostAsJsonAsync(
                 $"{baseUrl}/api/auth/login", new { Email = email, Password = password }, ct);
 
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Login rejected by server: {StatusCode}.", response.StatusCode);
-                return false;
+                return AuthResult.Fail(ReasonForStatus(response.StatusCode));
             }
 
             var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(cancellationToken: ct);
             if (auth is null)
             {
                 _logger.LogError("Login succeeded but the server returned an empty body.");
-                return false;
+                return AuthResult.Fail(AuthFailureReason.ServerError);
             }
 
-            await _secrets.SetAsync(TokenKey, auth.Token);
-            _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
-            return true;
+            await StoreTokensAsync(auth);
+            return AuthResult.Success();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "Login failed while contacting the API.");
-            return false;
+            return AuthResult.Fail(AuthFailureReason.NetworkError);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Login response could not be parsed.");
+            return AuthResult.Fail(AuthFailureReason.ServerError);
         }
     }
 
-    public async Task<bool> RegisterAsync(string email, string password, CancellationToken ct = default)
+    public async Task<AuthResult> RegisterAsync(string email, string password, CancellationToken ct = default)
     {
         try
         {
-            var baseUrl = ApiBaseUrl?.TrimEnd('/');
-            if (string.IsNullOrEmpty(baseUrl))
-            {
-                _logger.LogWarning("Registration aborted: no API base URL configured.");
-                return false;
-            }
-
+            var baseUrl = ApiBaseUrl.TrimEnd('/');
             var response = await _http.PostAsJsonAsync(
                 $"{baseUrl}/api/auth/register", new { Email = email, Password = password }, ct);
 
@@ -112,26 +95,46 @@ public class AuthService : IAuthService
                 var body = await response.Content.ReadAsStringAsync(ct);
                 _logger.LogWarning("Registration rejected by server: {StatusCode} {Body}.",
                     response.StatusCode, body);
-                return false;
+                // Validation failures (weak password, email taken) arrive as 400 alongside
+                // everything else the server can reject a request for; there is no reason
+                // enum granular enough to tell those apart, so both read as "server error".
+                return AuthResult.Fail(ReasonForStatus(response.StatusCode));
             }
 
             var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(cancellationToken: ct);
             if (auth is null)
             {
                 _logger.LogError("Registration succeeded but the server returned an empty body.");
-                return false;
+                return AuthResult.Fail(AuthFailureReason.ServerError);
             }
 
-            await _secrets.SetAsync(TokenKey, auth.Token);
-            _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
-            return true;
+            await StoreTokensAsync(auth);
+            return AuthResult.Success();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogError(ex, "Registration failed while contacting the API.");
-            return false;
+            return AuthResult.Fail(AuthFailureReason.NetworkError);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Registration response could not be parsed.");
+            return AuthResult.Fail(AuthFailureReason.ServerError);
         }
     }
+
+    /// <summary>
+    /// 401 and 423 are the only statuses <c>AuthController</c> returns for a reason the user
+    /// can act on (wrong password, too many attempts); everything else — a 500, a timeout
+    /// that still produced a response, a validation 400 on register — is bucketed together
+    /// since none of them are the user's fault and the app can't tell them apart usefully.
+    /// </summary>
+    private static AuthFailureReason ReasonForStatus(HttpStatusCode status) => status switch
+    {
+        HttpStatusCode.Unauthorized => AuthFailureReason.InvalidCredentials,
+        HttpStatusCode.Locked => AuthFailureReason.AccountLocked,
+        _ => AuthFailureReason.ServerError,
+    };
 
     /// <summary>
     /// Signs out and discards everything belonging to that account on this device.
@@ -142,12 +145,34 @@ public class AuthService : IAuthService
     /// worse, the next edit to one of them pushed it into the new account. The replica is a
     /// cache of one account's data; it has no meaning once that account is signed out.
     ///
-    /// The API base URL deliberately survives: it describes the server, not the account, and
-    /// clearing it would make the next sign-in fail with an empty Server URL field.
+    /// Also revokes the refresh token server-side, best-effort, before clearing it locally.
+    /// Without this, "signing out" only ever meant forgetting the token on this device — a
+    /// copy captured earlier (a stolen device, a compromised backup) would still work, since
+    /// nothing had told the server the session was over.
+    ///
+    /// The API base URL is not touched — it is a fixed constant now, not per-device state.
     /// </remarks>
     public async Task LogoutAsync()
     {
+        var refreshToken = await _secrets.GetAsync(RefreshTokenKey);
+        if (!string.IsNullOrEmpty(refreshToken))
+        {
+            try
+            {
+                var baseUrl = ApiBaseUrl.TrimEnd('/');
+                await _http.PostAsJsonAsync($"{baseUrl}/api/auth/revoke", new { RefreshToken = refreshToken });
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                // Signing out locally must succeed even when the server can't be reached —
+                // an unreachable revoke just means a stale token lingers server-side until it
+                // expires on its own; it does not block the user from leaving the app.
+                _logger.LogWarning(ex, "Could not revoke the refresh token on the server.");
+            }
+        }
+
         _secrets.Remove(TokenKey);
+        _secrets.Remove(RefreshTokenKey);
         _prefs.Remove(ExpiryKey);
         _prefs.Remove(SyncService.LastSyncKey);
         _prefs.Remove(LocalSettings.StampKey);
@@ -180,10 +205,17 @@ public class AuthService : IAuthService
             if (string.IsNullOrEmpty(token)) return false;
 
             var expiryTicks = _prefs.Get<long>(ExpiryKey, 0);
-            if (expiryTicks == 0) return false;
+            var expiry = expiryTicks == 0 ? DateTime.MinValue : new DateTime(expiryTicks, DateTimeKind.Utc);
 
-            var expiry = new DateTime(expiryTicks, DateTimeKind.Utc);
-            return expiry > DateTime.UtcNow;
+            if (expiry > DateTime.UtcNow) return true;
+
+            // The access token has run out. Rather than every caller of IsLoggedInAsync
+            // sending the user back to a password prompt the moment a day has passed, try the
+            // refresh token first — this is what lets a device stay signed in indefinitely as
+            // long as it syncs at least once within the refresh token's 30-day lifetime,
+            // instead of once every 24 hours. Every existing call site (MainLayout, Settings,
+            // SyncService) already goes through this method, so they all gain this for free.
+            return await TryRefreshAsync();
         }
         catch (Exception ex)
         {
@@ -191,6 +223,57 @@ public class AuthService : IAuthService
             _logger.LogError(ex, "Could not read the stored token; treating the user as signed out.");
             return false;
         }
+    }
+
+    private async Task<bool> TryRefreshAsync()
+    {
+        var refreshToken = await _secrets.GetAsync(RefreshTokenKey);
+        if (string.IsNullOrEmpty(refreshToken)) return false;
+
+        try
+        {
+            var baseUrl = ApiBaseUrl.TrimEnd('/');
+            var response = await _http.PostAsJsonAsync(
+                $"{baseUrl}/api/auth/refresh", new { RefreshToken = refreshToken });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // The server rejected this specific token — expired, already used, or
+                // revoked. Keeping it would just mean trying the same rejected token again
+                // next time, so it goes; the user needs a password to get a new one.
+                _logger.LogWarning("Refresh rejected by server: {StatusCode}.", response.StatusCode);
+                _secrets.Remove(RefreshTokenKey);
+                return false;
+            }
+
+            var auth = await response.Content.ReadFromJsonAsync<AuthResponse>();
+            if (auth is null) return false;
+
+            await StoreTokensAsync(auth);
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            // Unreachable, or responded with something unparseable — neither is evidence the
+            // refresh token itself is bad, so unlike a rejection it stays for next time.
+            _logger.LogWarning(ex, "Could not refresh the session; will retry next time.");
+            return false;
+        }
+    }
+
+    private async Task StoreTokensAsync(AuthResponse auth)
+    {
+        await _secrets.SetAsync(TokenKey, auth.Token);
+        _prefs.Set(ExpiryKey, auth.Expiry.Ticks);
+        await _secrets.SetAsync(RefreshTokenKey, auth.RefreshToken);
+    }
+
+    public async Task<bool> HasStoredSessionAsync()
+    {
+        // No expiry check on purpose — see IAuthService. A stored token means this device
+        // belongs to an account, which is what the app gate asks about.
+        var token = await _secrets.GetAsync(TokenKey);
+        return !string.IsNullOrEmpty(token);
     }
 
     public async Task<UserInfo?> GetCurrentUserAsync()
@@ -243,5 +326,5 @@ public class AuthService : IAuthService
         }
     }
 
-    private record AuthResponse(string Token, DateTime Expiry);
+    private record AuthResponse(string Token, DateTime Expiry, string RefreshToken);
 }

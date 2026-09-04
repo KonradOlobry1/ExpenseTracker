@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using ExpenseTracker.Application.Interfaces;
 
 namespace ExpenseTracker.Api.Web;
@@ -20,10 +20,17 @@ public class WebAuthService(IHttpContextAccessor accessor) : IAuthService
     private ClaimsPrincipal? User => accessor.HttpContext?.User;
 
     /// <summary>Not meaningful on the web — the UI and the database are the same deployment.</summary>
-    public string? ApiBaseUrl { get; set; }
+    public string ApiBaseUrl => string.Empty;
 
     public Task<bool> IsLoggedInAsync()
         => Task.FromResult(User?.Identity?.IsAuthenticated ?? false);
+
+    /// <summary>
+    /// The same thing on the web. The distinction the interface draws exists for the device,
+    /// where a stored token can outlive its expiry; a cookie is either presented or it is not,
+    /// and the Blazor endpoints already require authorization before a circuit starts.
+    /// </summary>
+    public Task<bool> HasStoredSessionAsync() => IsLoggedInAsync();
 
     public Task<UserInfo?> GetCurrentUserAsync()
     {
@@ -37,10 +44,10 @@ public class WebAuthService(IHttpContextAccessor accessor) : IAuthService
     /// <summary>Cookie auth carries no bearer token.</summary>
     public Task<string?> GetTokenAsync() => Task.FromResult<string?>(null);
 
-    public Task<bool> LoginAsync(string email, string password, CancellationToken ct = default)
+    public Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default)
         => throw new NotSupportedException("Sign in via /account/login — a cookie cannot be set from a Blazor circuit.");
 
-    public Task<bool> RegisterAsync(string email, string password, CancellationToken ct = default)
+    public Task<AuthResult> RegisterAsync(string email, string password, CancellationToken ct = default)
         => throw new NotSupportedException("Register via /account/login — a cookie cannot be set from a Blazor circuit.");
 
     public Task LogoutAsync()

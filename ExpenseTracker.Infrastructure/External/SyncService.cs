@@ -1,4 +1,5 @@
-﻿using System.Net.Http.Headers;
+﻿using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using ExpenseTracker.Application.Interfaces;
@@ -68,9 +69,18 @@ public class SyncService : ISyncService
 
     public event Action? SyncStateChanged;
 
-    public async Task<bool> SyncAsync(CancellationToken ct = default)
+    public async Task<SyncResult> SyncAsync(CancellationToken ct = default)
     {
-        if (!await _auth.IsLoggedInAsync()) return false;
+        if (!await _auth.IsLoggedInAsync())
+        {
+            // Distinguishes "never signed in" from "was signed in, needs attention" — the
+            // second is what sends the user back to the login page; the first never should,
+            // since sync simply has nothing to do yet.
+            var reason = await _auth.HasStoredSessionAsync()
+                ? SyncFailureReason.SessionExpired
+                : SyncFailureReason.NotSignedIn;
+            return SyncResult.Fail(reason);
+        }
 
         IsSyncing = true;
         SyncStateChanged?.Invoke();
@@ -81,15 +91,10 @@ public class SyncService : ISyncService
             if (token is null)
             {
                 _logger.LogWarning("Sync aborted: no stored auth token.");
-                return false;
+                return SyncResult.Fail(SyncFailureReason.SessionExpired);
             }
 
-            var baseUrl = _auth.ApiBaseUrl?.TrimEnd('/');
-            if (string.IsNullOrEmpty(baseUrl))
-            {
-                _logger.LogWarning("Sync aborted: no API base URL configured.");
-                return false;
-            }
+            var baseUrl = _auth.ApiBaseUrl.TrimEnd('/');
 
             var lastSync = LastSyncTime;
 
@@ -113,14 +118,16 @@ public class SyncService : ISyncService
             pushRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             pushRequest.Content = JsonContent.Create(pushPayload);
             var pushResponse = await _http.SendAsync(pushRequest, ct);
-            pushResponse.EnsureSuccessStatusCode();
+            if (!pushResponse.IsSuccessStatusCode)
+                return await FailFromResponseAsync(pushResponse, "push", ct);
 
             // ── Pull ──────────────────────────────────────────────────────────
             var sinceParam = lastSync.HasValue ? $"?since={lastSync.Value:O}" : string.Empty;
             using var pullRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/sync/pull{sinceParam}");
             pullRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             var pullResponse = await _http.SendAsync(pullRequest, ct);
-            pullResponse.EnsureSuccessStatusCode();
+            if (!pullResponse.IsSuccessStatusCode)
+                return await FailFromResponseAsync(pullResponse, "pull", ct);
 
             var pulled = await pullResponse.Content.ReadFromJsonAsync<SyncPullResponse>(
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, ct);
@@ -132,33 +139,52 @@ public class SyncService : ISyncService
             }
 
             LastSyncTime = DateTime.UtcNow;
-            return true;
+            return SyncResult.Success();
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Sync cancelled.");
-            return false;
+            return SyncResult.Fail(SyncFailureReason.NetworkError);
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "Sync failed: the API was unreachable or returned an error.");
-            return false;
+            // Transport-level: DNS, connection refused, TLS — the request never got a
+            // response to check a status code on. A non-success response is handled above,
+            // by FailFromResponseAsync, not here.
+            _logger.LogError(ex, "Sync failed: the API was unreachable.");
+            return SyncResult.Fail(SyncFailureReason.NetworkError);
         }
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Sync failed: the API returned a response that could not be parsed.");
-            return false;
+            return SyncResult.Fail(SyncFailureReason.ServerError);
         }
         catch (DbUpdateException ex)
         {
             _logger.LogError(ex, "Sync failed: pulled data could not be written to the local database.");
-            return false;
+            return SyncResult.Fail(SyncFailureReason.LocalDatabaseError);
         }
         finally
         {
             IsSyncing = false;
             SyncStateChanged?.Invoke();
         }
+    }
+
+    /// <summary>
+    /// A 401 here means the token was accepted by <c>IsLoggedInAsync</c> a moment ago but the
+    /// server disagrees now — expiry mid-request, or the server's clock and this device's
+    /// having drifted. Everything else the API can return (429, 500) is not something the
+    /// user did wrong.
+    /// </summary>
+    private async Task<SyncResult> FailFromResponseAsync(HttpResponseMessage response, string phase, CancellationToken ct)
+    {
+        var body = await response.Content.ReadAsStringAsync(ct);
+        _logger.LogWarning("Sync {Phase} rejected by server: {StatusCode} {Body}.", phase, response.StatusCode, body);
+
+        return SyncResult.Fail(response.StatusCode == HttpStatusCode.Unauthorized
+            ? SyncFailureReason.SessionExpired
+            : SyncFailureReason.ServerError);
     }
 
     // ── Push helpers ──────────────────────────────────────────────────────────

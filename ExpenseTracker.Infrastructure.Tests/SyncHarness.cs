@@ -95,6 +95,14 @@ public class StubApi : HttpMessageHandler
         new(null, null, null, null, new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc), null);
 
     public HttpStatusCode PushStatus { get; set; } = HttpStatusCode.OK;
+    public HttpStatusCode PullStatus { get; set; } = HttpStatusCode.OK;
+    public HttpStatusCode LoginStatus { get; set; } = HttpStatusCode.OK;
+    public HttpStatusCode RegisterStatus { get; set; } = HttpStatusCode.OK;
+    public HttpStatusCode RefreshStatus { get; set; } = HttpStatusCode.OK;
+
+    /// <summary>Every request throws instead of getting a response — a DNS failure, a
+    /// connection refused, anything transport-level rather than an HTTP status.</summary>
+    public bool ThrowOnSend { get; set; }
 
     /// <summary>Every push payload the client sent, in order.</summary>
     public List<SyncPushRequest> Pushes { get; } = [];
@@ -102,10 +110,39 @@ public class StubApi : HttpMessageHandler
     /// <summary>Every pull URL the client requested, in order.</summary>
     public List<string> PullUrls { get; } = [];
 
+    public int RefreshCallCount { get; private set; }
+
+    /// <summary>Every refresh token a revoke request was made with, in order.</summary>
+    public List<string> RevokedTokens { get; } = [];
+
+    private int _tokenCounter;
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        if (ThrowOnSend)
+            throw new HttpRequestException("Stubbed network failure.");
+
         var url = request.RequestUri!.ToString();
+
+        if (url.Contains("/api/auth/login"))
+            return AuthResponseMessage(LoginStatus);
+
+        if (url.Contains("/api/auth/register"))
+            return AuthResponseMessage(RegisterStatus);
+
+        if (url.Contains("/api/auth/refresh"))
+        {
+            RefreshCallCount++;
+            return AuthResponseMessage(RefreshStatus);
+        }
+
+        if (url.Contains("/api/auth/revoke"))
+        {
+            var body = await request.Content!.ReadFromJsonAsync<RevokeRequest>(Json, cancellationToken);
+            RevokedTokens.Add(body!.RefreshToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
 
         if (url.Contains("/api/sync/push"))
         {
@@ -117,14 +154,34 @@ public class StubApi : HttpMessageHandler
         if (url.Contains("/api/sync/pull"))
         {
             PullUrls.Add(url);
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(PullResponse)
-            };
+            return PullStatus == HttpStatusCode.OK
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(PullResponse) }
+                : new HttpResponseMessage(PullStatus);
         }
 
         return new HttpResponseMessage(HttpStatusCode.NotFound);
     }
+
+    /// <summary>A fresh pair each call — <c>_tokenCounter</c> distinguishes them, so a test
+    /// can confirm a refresh actually replaced the stored value rather than merely re-storing
+    /// the same one.</summary>
+    private HttpResponseMessage AuthResponseMessage(HttpStatusCode status)
+    {
+        if (status != HttpStatusCode.OK) return new HttpResponseMessage(status);
+
+        _tokenCounter++;
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                Token = $"stub-token-{_tokenCounter}",
+                Expiry = DateTime.UtcNow.AddHours(24),
+                RefreshToken = $"stub-refresh-{_tokenCounter}"
+            })
+        };
+    }
+
+    private record RevokeRequest(string RefreshToken);
 }
 
 /// <summary>
@@ -183,11 +240,20 @@ public sealed class SyncHarness : IDisposable
     /// storage and an expiry in preferences. Written directly rather than through LoginAsync
     /// so a test about sync does not depend on the login endpoint too.
     /// </summary>
-    public void SignIn(DateTime? expiry = null)
+    /// <summary>
+    /// Passing <paramref name="refreshToken"/> as null simulates a device that predates
+    /// refresh tokens, or one that already had its refresh token cleared after the server
+    /// rejected it outright (as opposed to merely being unreachable).
+    /// </summary>
+    public void SignIn(DateTime? expiry = null, string? refreshToken = "stub-refresh-token")
     {
+        // ApiBaseUrl is a fixed constant now, not per-device state, so signing in only means
+        // storing the tokens and expiry — StubApi answers any host, so the constant's actual
+        // value is irrelevant here.
         Secrets.SetAsync("jwt_token", "stub-token").GetAwaiter().GetResult();
         Prefs.Set("jwt_expiry", (expiry ?? DateTime.UtcNow.AddHours(24)).Ticks);
-        Auth.ApiBaseUrl = "https://stub.local";
+        if (refreshToken is not null)
+            Secrets.SetAsync("jwt_refresh_token", refreshToken).GetAwaiter().GetResult();
     }
 
     public AppDbContext NewDbContext() => DbFactory.CreateDbContext();
@@ -215,11 +281,13 @@ public sealed class SyncHarness : IDisposable
         => new(currency, language, dark,
                updatedAt ?? new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc));
 
-    /// <summary>Runs a sync and fails the test with the logged reason if it did not succeed.</summary>
-    public async Task SyncOrExplainAsync()
+    /// <summary>Runs a sync and fails the test with the reason and log if it did not succeed.</summary>
+    public async Task<SyncResult> SyncOrExplainAsync()
     {
-        if (!await Sync.SyncAsync())
-            Assert.Fail("Sync failed: " + string.Join(" | ", SyncLog.Entries));
+        var result = await Sync.SyncAsync();
+        if (!result.Succeeded)
+            Assert.Fail($"Sync failed ({result.Failure}): " + string.Join(" | ", SyncLog.Entries));
+        return result;
     }
 
     public void Dispose() => _connection.Dispose();

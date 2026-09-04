@@ -35,6 +35,7 @@ public class ApiDbContext(DbContextOptions<ApiDbContext> options)
     public DbSet<Income> Incomes => Set<Income>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<Category> Categories => Set<Category>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +47,18 @@ public class ApiDbContext(DbContextOptions<ApiDbContext> options)
         {
             b.Property(u => u.Currency).IsRequired().HasMaxLength(8);
             b.Property(u => u.Language).IsRequired().HasMaxLength(16);
+        });
+
+        modelBuilder.Entity<RefreshToken>(b =>
+        {
+            b.Property(r => r.UserId).IsRequired();
+            // SHA-256, hex-encoded: 64 characters, fixed.
+            b.Property(r => r.TokenHash).IsRequired().HasMaxLength(64);
+            b.HasIndex(r => r.TokenHash).IsUnique();
+            b.HasOne(r => r.User)
+             .WithMany()
+             .HasForeignKey(r => r.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Category>(b =>

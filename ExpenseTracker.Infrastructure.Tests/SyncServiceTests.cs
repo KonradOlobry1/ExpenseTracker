@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using ExpenseTracker.Contracts;
+using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using static ExpenseTracker.Infrastructure.Tests.SyncHarness;
@@ -174,7 +175,7 @@ public class SyncSettingsTests
         h.Api.PullResponse = new SyncPullResponse(
             null, null, null, null, DateTime.UtcNow, SettingsDto("PLN", "kl"));
 
-        Assert.True(await h.Sync.SyncAsync());
+        Assert.True((await h.Sync.SyncAsync()).Succeeded);
         Assert.Equal("en", h.Localization.CurrentLanguage);
     }
 }
@@ -189,7 +190,10 @@ public class SyncFailureTests
         using var h = new SyncHarness();
         h.Api.PushStatus = HttpStatusCode.InternalServerError;
 
-        Assert.False(await h.Sync.SyncAsync());
+        var result = await h.Sync.SyncAsync();
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SyncFailureReason.ServerError, result.Failure);
         Assert.Null(h.Sync.LastSyncTime);
     }
 
@@ -198,7 +202,7 @@ public class SyncFailureTests
     {
         using var h = new SyncHarness();
 
-        Assert.True(await h.Sync.SyncAsync());
+        Assert.True((await h.Sync.SyncAsync()).Succeeded);
         Assert.NotNull(h.Sync.LastSyncTime);
     }
 
@@ -219,8 +223,59 @@ public class SyncFailureTests
     {
         using var h = new SyncHarness(signedIn: false);
 
-        Assert.False(await h.Sync.SyncAsync());
+        var result = await h.Sync.SyncAsync();
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SyncFailureReason.NotSignedIn, result.Failure);
         Assert.Empty(h.Api.Pushes);
+    }
+}
+
+/// <summary>
+/// The app gate asks whether this device belongs to an account; sync asks whether the token
+/// is still valid. Conflating the two would either let a stranger open the app or lock the
+/// owner out of their own offline data.
+/// </summary>
+public class SessionTests
+{
+    [Fact]
+    public async Task A_fresh_install_has_no_session()
+    {
+        using var h = new SyncHarness(signedIn: false);
+
+        Assert.False(await h.Auth.HasStoredSessionAsync());
+    }
+
+    [Fact]
+    public async Task Signing_in_creates_a_session()
+    {
+        using var h = new SyncHarness();
+
+        Assert.True(await h.Auth.HasStoredSessionAsync());
+    }
+
+    [Fact]
+    public async Task An_expired_token_still_counts_as_a_session()
+    {
+        // The whole point of the distinction. The app opens and the local replica stays
+        // readable regardless of whether a silent refresh is even possible — no refresh
+        // token here, so IsLoggedInAsync has no way to renew and sync stops until the user
+        // signs in again. See SilentRefreshTests for the case where a refresh token exists.
+        using var h = new SyncHarness(signedIn: false);
+        h.SignIn(expiry: DateTime.UtcNow.AddHours(-1), refreshToken: null);
+
+        Assert.True(await h.Auth.HasStoredSessionAsync());
+        Assert.False(await h.Auth.IsLoggedInAsync());
+    }
+
+    [Fact]
+    public async Task Signing_out_ends_the_session()
+    {
+        using var h = new SyncHarness();
+
+        await h.Auth.LogoutAsync();
+
+        Assert.False(await h.Auth.HasStoredSessionAsync());
     }
 }
 
@@ -249,14 +304,38 @@ public class LogoutTests
     }
 
     [Fact]
-    public async Task Signing_out_keeps_the_server_URL()
+    public async Task Signing_out_revokes_the_refresh_token_on_the_server()
     {
-        // It describes the server, not the account. Clearing it left the next sign-in with an
-        // empty Server URL field, which fails before any request and reads as a bad password.
+        // Otherwise "signing out" only ever meant forgetting the token locally — a copy
+        // captured earlier would still work, since nothing told the server the session ended.
         using var h = new SyncHarness();
 
         await h.Auth.LogoutAsync();
 
-        Assert.Equal("https://stub.local", h.Auth.ApiBaseUrl);
+        Assert.Equal(["stub-refresh-token"], h.Api.RevokedTokens);
+    }
+
+    [Fact]
+    public async Task Signing_out_succeeds_locally_even_when_the_server_is_unreachable()
+    {
+        using var h = new SyncHarness();
+        h.Api.ThrowOnSend = true;
+
+        await h.Auth.LogoutAsync();
+
+        Assert.False(await h.Auth.IsLoggedInAsync());
+    }
+
+    [Fact]
+    public async Task The_server_URL_is_a_fixed_constant_not_per_device_state()
+    {
+        // It used to be a preference the user could set, and a stray value left behind on a
+        // device had no UI to fix it. Signing out — or anything else — must not change it.
+        using var h = new SyncHarness();
+
+        await h.Auth.LogoutAsync();
+
+        IAuthService authInterface = h.Auth;
+        Assert.Equal(ExpenseTracker.Infrastructure.External.AuthService.ApiBaseUrl, authInterface.ApiBaseUrl);
     }
 }

@@ -20,6 +20,15 @@ internal static class TestClient
 
     /// <summary>Registers a fresh account and returns a client that authenticates as it.</summary>
     public static async Task<HttpClient> RegisterAsync(this ApiFactory factory, string? email = null)
+        => (await factory.RegisterWithTokensAsync(email)).Client;
+
+    /// <summary>
+    /// Registers a fresh account and returns both the authenticated client and the raw
+    /// tokens — for the refresh/revoke tests, which need the refresh token value itself
+    /// rather than just a client that already carries the access token.
+    /// </summary>
+    public static async Task<(HttpClient Client, AuthResponse Auth)> RegisterWithTokensAsync(
+        this ApiFactory factory, string? email = null)
     {
         var client = factory.CreateClient();
         email ??= $"user-{Guid.NewGuid():N}@test.local";
@@ -28,15 +37,15 @@ internal static class TestClient
             new { Email = email, Password = "Passw0rd!" });
         response.EnsureSuccessStatusCode();
 
-        var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(Json);
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth!.Token);
-        return client;
+        var auth = (await response.Content.ReadFromJsonAsync<AuthResponse>(Json))!;
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.Token);
+        return (client, auth);
     }
 
     public static async Task<T?> ReadAsync<T>(this HttpResponseMessage response)
         => await response.Content.ReadFromJsonAsync<T>(Json);
 
-    public record AuthResponse(string Token, DateTime Expiry);
+    public record AuthResponse(string Token, DateTime Expiry, string RefreshToken);
 
     public static SyncCategoryDto Category(Guid id, string name = "Food", bool isDeleted = false)
         => new(id, name, "restaurant", "#F44336", true, new DateTime(2026, 1, 1), null, isDeleted);

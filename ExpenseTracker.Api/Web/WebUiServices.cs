@@ -193,9 +193,9 @@ public class NoOpSyncService : ISyncService
     public DateTime? LastSyncTime => null;
     public event Action? SyncStateChanged;
 
-    public Task<bool> SyncAsync(CancellationToken ct = default)
+    public Task<SyncResult> SyncAsync(CancellationToken ct = default)
     {
         SyncStateChanged?.Invoke();   // keeps the compiler honest about the unused event
-        return Task.FromResult(true);
+        return Task.FromResult(SyncResult.Success());
     }
 }
