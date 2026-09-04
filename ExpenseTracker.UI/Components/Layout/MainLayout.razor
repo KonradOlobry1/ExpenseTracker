@@ -45,7 +45,7 @@ else
                            Color="Color.Inherit"
                            OnClick="ThemeService.Toggle" />
         </MudTooltip>
-        @if (_isLoggedIn)
+        @if (_isLoggedIn && SyncService.IsSupported)
         {
             <MudTooltip Text="@(_isSyncing ? L["Settings_Syncing"] : _lastSyncText)">
                 <MudIconButton Icon="@(_isSyncing ? Icons.Material.Filled.Sync : Icons.Material.Filled.CloudDone)"

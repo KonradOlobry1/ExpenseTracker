@@ -158,6 +158,7 @@ public static class Translations
             ["Settings_LastSync"]         = "Last synced:",
             ["Settings_SignOut"]          = "Sign Out",
             ["Settings_NeverSynced"]      = "Never synced",
+            ["Settings_NoSyncNeeded"]     = "Your changes are saved directly to the cloud. There is nothing to sync here.",
             ["Settings_Syncing"]          = "Syncing...",
 
             // Payment detection
@@ -363,6 +364,7 @@ public static class Translations
             ["Settings_LastSync"]         = "Ostatnia sync.:",
             ["Settings_SignOut"]          = "Wyloguj się",
             ["Settings_NeverSynced"]      = "Nigdy nie synchronizowano",
+            ["Settings_NoSyncNeeded"]     = "Zmiany są zapisywane bezpośrednio w chmurze. Nie ma tu nic do zsynchronizowania.",
             ["Settings_Syncing"]          = "Synchronizuję...",
 
             // Payment detection

@@ -191,6 +191,13 @@ public class NoOpSyncService : ISyncService
 {
     public bool IsSyncing => false;
     public DateTime? LastSyncTime => null;
+
+    /// <summary>
+    /// Nothing to sync here, so the UI hides its sync controls rather than offering buttons
+    /// that do nothing and a "last synced" time that stays "never" forever.
+    /// </summary>
+    public bool IsSupported => false;
+
     public event Action? SyncStateChanged;
 
     public Task<SyncResult> SyncAsync(CancellationToken ct = default)

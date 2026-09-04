@@ -183,6 +183,17 @@ public class SyncSettingsTests
 public class SyncFailureTests
 {
     [Fact]
+    public void The_device_reports_that_it_does_sync()
+    {
+        // The counterpart to the web's NoOpSyncService reporting false. If this ever inverted,
+        // the device would quietly hide its own sync controls — the feature the whole client
+        // exists for — without anything failing.
+        using var h = new SyncHarness();
+
+        Assert.True(h.Sync.IsSupported);
+    }
+
+    [Fact]
     public async Task A_failed_push_leaves_the_sync_marker_untouched()
     {
         // The delta is computed from this marker. Advancing it after a failed push would make

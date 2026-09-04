@@ -7,6 +7,18 @@ using static ExpenseTracker.Api.Tests.TestClient;
 namespace ExpenseTracker.Api.Tests;
 
 /// <summary>
+/// The web has no local replica, so it cannot sync and must not offer to. Reporting this
+/// wrongly is not a crash — it is a Sync Now button that silently does nothing and a "last
+/// synced" time stuck on "never", which is how this was reported as broken sync.
+/// </summary>
+public class WebSyncCapabilityTests
+{
+    [Fact]
+    public void The_web_reports_that_it_does_not_sync()
+        => Assert.False(new ExpenseTracker.Api.Web.NoOpSyncService().IsSupported);
+}
+
+/// <summary>
 /// The endpoints and limits the app needs in order to be operable rather than merely correct.
 /// </summary>
 public class HealthEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>

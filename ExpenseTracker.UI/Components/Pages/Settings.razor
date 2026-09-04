@@ -27,16 +27,24 @@
         else
         {
             <MudText><strong>@L["Settings_SignedInAs"]</strong> @_userEmail</MudText>
+
+            @* The web has no local replica to reconcile, so a sync button there could never
+               do anything. Saying so beats leaving a dead button and a "never synced" time. *@
             <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">
-                @L["Settings_LastSync"] @(_lastSyncDisplay)
+                @(SyncService.IsSupported ? $"{L["Settings_LastSync"]} {_lastSyncDisplay}"
+                                          : L["Settings_NoSyncNeeded"])
             </MudText>
+
             <MudStack Row="true" Class="mt-3" Spacing="2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Sync"
-                           Disabled="_syncing"
-                           OnClick="DoSync">
-                    @(_syncing ? "..." : L["Settings_SyncNow"])
-                </MudButton>
+                @if (SyncService.IsSupported)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Sync"
+                               Disabled="_syncing"
+                               OnClick="DoSync">
+                        @(_syncing ? "..." : L["Settings_SyncNow"])
+                    </MudButton>
+                }
                 <MudButton Variant="Variant.Outlined" Color="Color.Error"
                            OnClick="SignOut">
                     @L["Settings_SignOut"]

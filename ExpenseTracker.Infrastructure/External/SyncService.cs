@@ -67,6 +67,9 @@ public class SyncService : ISyncService
 
     public bool IsSyncing { get; private set; }
 
+    /// <summary>This is the device client — syncing is the entire point of it.</summary>
+    public bool IsSupported => true;
+
     public event Action? SyncStateChanged;
 
     public async Task<SyncResult> SyncAsync(CancellationToken ct = default)

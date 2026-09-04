@@ -18,7 +18,10 @@
    That rules out MudBlazor's inputs. MudTextField renders no `name` attribute outside an
    interactive render mode, so the fields simply would not post. InputText does emit one. *@
 
-<div class="login-shell">
+@* Reads the theme the app already stores in a cookie, so signing out of a dark session does
+   not land on a white page. Server-side because this page is static — there is no circuit to
+   ask, and the request carries the cookie anyway. *@
+<div class="login-shell @(IsDarkMode ? "dark" : "")">
     <div class="login-card">
         <h1>Expense Tracker</h1>
 
@@ -72,6 +75,9 @@
     [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
 
     private string? _error;
+
+    private bool IsDarkMode =>
+        HttpContextAccessor.HttpContext?.Request.Cookies[PrefKeys.Theme] == "dark";
 
     private async Task SubmitAsync()
     {
