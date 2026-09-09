@@ -8,6 +8,8 @@ namespace ExpenseTracker.Api.Data.Repositories;
 public class CloudSubscriptionRepository(IDbContextFactory<ApiDbContext> factory, ICurrentUser user)
     : ISubscriptionRepository
 {
+    // Deliberately tracked: DeleteAsync reads through this to mutate the row it finds. The read
+    // below adds AsNoTracking itself.
     private IQueryable<Subscription> Mine(ApiDbContext db) =>
         db.Subscriptions.Include(s => s.Category)
                         .Where(s => s.UserId == user.UserId && !s.IsDeleted && !s.Category.IsDeleted);
@@ -15,7 +17,7 @@ public class CloudSubscriptionRepository(IDbContextFactory<ApiDbContext> factory
     public async Task<List<Subscription>> GetAllAsync(bool activeOnly = false, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var query = Mine(db);
+        var query = Mine(db).AsNoTracking();
         if (activeOnly) query = query.Where(s => s.IsActive);
         return await query.OrderBy(s => s.Name).ToListAsync(ct);
     }

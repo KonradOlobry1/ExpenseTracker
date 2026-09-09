@@ -9,7 +9,9 @@ public class CategoryRepository(IDbContextFactory<AppDbContext> factory) : ICate
     public async Task<List<Category>> GetAllAsync(CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        return await db.Categories.OrderBy(c => c.Name).ToListAsync(ct);
+        // No tracking: this context is disposed on return, so nothing can be saved through it.
+        // DeleteAsync below reads to mutate and deliberately stays tracked.
+        return await db.Categories.AsNoTracking().OrderBy(c => c.Name).ToListAsync(ct);
     }
 
     public async Task<Category> CreateAsync(Category category, CancellationToken ct = default)

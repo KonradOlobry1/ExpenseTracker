@@ -13,6 +13,9 @@ namespace ExpenseTracker.Api.Data.Repositories;
 public class CloudExpenseRepository(IDbContextFactory<ApiDbContext> factory, ICurrentUser user)
     : IExpenseRepository
 {
+    // Deliberately tracked. DeleteAsync reads through this to mutate the row it finds, so
+    // AsNoTracking here would make its SaveChanges quietly save nothing. The read methods add
+    // it themselves.
     private IQueryable<Expense> Mine(ApiDbContext db) =>
         db.Expenses.Include(e => e.Category)
                    .Where(e => e.UserId == user.UserId && !e.IsDeleted && !e.Category.IsDeleted);
@@ -20,13 +23,14 @@ public class CloudExpenseRepository(IDbContextFactory<ApiDbContext> factory, ICu
     public async Task<List<Expense>> GetAllAsync(CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        return await Mine(db).OrderByDescending(e => e.Date).ToListAsync(ct);
+        return await Mine(db).AsNoTracking().OrderByDescending(e => e.Date).ToListAsync(ct);
     }
 
     public async Task<List<Expense>> GetByMonthAsync(int year, int month, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         return await Mine(db)
+            .AsNoTracking()
             .Where(e => e.Date.Year == year && e.Date.Month == month)
             .OrderByDescending(e => e.Date)
             .ToListAsync(ct);
@@ -49,9 +53,10 @@ public class CloudExpenseRepository(IDbContextFactory<ApiDbContext> factory, ICu
         return await Filtered(db, filter).SumAsync(e => e.Amount, ct);
     }
 
+    // Only the paged read and the sum use this, so the no-tracking call belongs here.
     private IQueryable<Expense> Filtered(ApiDbContext db, ExpenseFilter filter)
     {
-        var query = Mine(db);
+        var query = Mine(db).AsNoTracking();
 
         if (filter.From.HasValue) query = query.Where(e => e.Date >= filter.From.Value);
         if (filter.To.HasValue) query = query.Where(e => e.Date <= filter.To.Value);
@@ -102,7 +107,7 @@ public class CloudExpenseRepository(IDbContextFactory<ApiDbContext> factory, ICu
     public async Task<Dictionary<int, decimal>> GetMonthlyTotalsAsync(int year, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var expenses = await Mine(db).Where(e => e.Date.Year == year).ToListAsync(ct);
+        var expenses = await Mine(db).AsNoTracking().Where(e => e.Date.Year == year).ToListAsync(ct);
 
         return expenses.GroupBy(e => e.Date.Month)
                        .ToDictionary(g => g.Key, g => g.Sum(e => e.Amount));
@@ -113,6 +118,7 @@ public class CloudExpenseRepository(IDbContextFactory<ApiDbContext> factory, ICu
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var expenses = await Mine(db)
+            .AsNoTracking()
             .Where(e => e.Date.Year == year && e.Date.Month == month)
             .ToListAsync(ct);
 

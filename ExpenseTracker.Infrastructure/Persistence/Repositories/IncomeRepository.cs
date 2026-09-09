@@ -9,7 +9,9 @@ public class IncomeRepository(IDbContextFactory<AppDbContext> factory) : IIncome
     public async Task<List<Income>> GetAllAsync(bool activeOnly = false, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var query = db.Incomes.AsQueryable();
+        // No tracking: this context is disposed on return, so nothing can be saved through it.
+        // DeleteAsync below reads to mutate and deliberately stays tracked.
+        var query = db.Incomes.AsNoTracking().AsQueryable();
         if (activeOnly)
             query = query.Where(i => i.IsActive);
         return await query.OrderByDescending(i => i.StartDate).ToListAsync(ct);
@@ -45,6 +47,6 @@ public class IncomeRepository(IDbContextFactory<AppDbContext> factory) : IIncome
     public async Task<List<Income>> GetActiveAsync(CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        return await db.Incomes.Where(i => i.IsActive).ToListAsync(ct);
+        return await db.Incomes.AsNoTracking().Where(i => i.IsActive).ToListAsync(ct);
     }
 }

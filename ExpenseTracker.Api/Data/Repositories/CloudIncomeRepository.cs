@@ -8,13 +8,15 @@ namespace ExpenseTracker.Api.Data.Repositories;
 public class CloudIncomeRepository(IDbContextFactory<ApiDbContext> factory, ICurrentUser user)
     : IIncomeRepository
 {
+    // Deliberately tracked: DeleteAsync reads through this to mutate the row it finds. The read
+    // below adds AsNoTracking itself.
     private IQueryable<Income> Mine(ApiDbContext db) =>
         db.Incomes.Where(i => i.UserId == user.UserId && !i.IsDeleted);
 
     public async Task<List<Income>> GetAllAsync(bool activeOnly = false, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var query = Mine(db);
+        var query = Mine(db).AsNoTracking();
         if (activeOnly) query = query.Where(i => i.IsActive);
         return await query.OrderByDescending(i => i.StartDate).ToListAsync(ct);
     }
