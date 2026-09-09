@@ -32,11 +32,6 @@ public class AuthController(
     // one again.
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
-    // An hour, against the refresh token's thirty days. This one sits in a mailbox rather than
-    // in a device's secure storage: long enough to go and read the message, short enough that
-    // finding it months later is worth nothing.
-    private static readonly TimeSpan PasswordResetTokenLifetime = TimeSpan.FromHours(1);
-
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(
         [FromBody] RegisterRequest request, CancellationToken ct)
@@ -158,18 +153,9 @@ public class AuthController(
 
         if (user is not null)
         {
-            // Asking again retires the previous link rather than adding a second live one.
-            await ConsumeOutstandingResetTokensAsync(user.Id, ct);
-
-            var token = GenerateOpaqueToken();
-            db.PasswordResetTokens.Add(new PasswordResetToken
-            {
-                UserId = user.Id,
-                TokenHash = Hash(token),
-                ExpiresAt = DateTime.UtcNow.Add(PasswordResetTokenLifetime),
-                CreatedAt = DateTime.UtcNow,
-            });
-            await db.SaveChangesAsync(ct);
+            // Issuing retires any link the account already had, so "send it again" cannot
+            // leave several live tokens.
+            var token = await PasswordResets.IssueAsync(db, user.Id, ct);
 
             // Only the sender ever sees the raw token. It is never returned from here.
             await resetSender.SendAsync(request.Email, token, ct);
@@ -182,72 +168,24 @@ public class AuthController(
     /// Spends a reset token and sets the new password.
     /// </summary>
     /// <remarks>
-    /// Two separate checks, deliberately. The opaque token above establishes who is asking —
-    /// it is the proof that this caller can read the account's email. Identity's own token,
-    /// generated and consumed in the same breath below, is what runs the configured password
-    /// policy and rotates the security stamp; setting the hash directly would skip both, and
-    /// RemovePassword-then-AddPassword could leave an account with no password at all when the
-    /// second half fails validation.
+    /// Two separate checks, deliberately. The opaque token establishes who is asking — it is
+    /// the proof that this caller can read the account's email. What
+    /// <see cref="PasswordResets.CompleteAsync"/> does with Identity's own token is what
+    /// enforces the password policy. The rules live there because the web pages spend tokens
+    /// too, and both routes have to behave identically.
     /// </remarks>
     [HttpPost("reset-password")]
     public async Task<IActionResult> ResetPassword(
         [FromBody] ResetPasswordRequest request, CancellationToken ct)
     {
-        var hash = Hash(request.Token);
-        var stored = await db.PasswordResetTokens
-            .Include(t => t.User)
-            .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+        var stored = await PasswordResets.FindUsableAsync(db, request.Token, ct);
 
-        // Unknown, spent and expired are one answer: a caller holding a bad token learns
-        // nothing about which kind of bad it is.
-        if (stored is null || stored.UsedAt is not null || stored.ExpiresAt <= DateTime.UtcNow
-            || stored.User is null)
+        if (stored is null)
             return BadRequest("This reset link is invalid or has expired.");
 
-        var identityToken = await userManager.GeneratePasswordResetTokenAsync(stored.User);
-        var result = await userManager.ResetPasswordAsync(stored.User, identityToken, request.NewPassword);
+        var result = await PasswordResets.CompleteAsync(db, userManager, stored, request.NewPassword, ct);
 
-        // A rejected password must not spend the token — otherwise one typo costs the user
-        // their only link and they start the whole flow again.
-        if (!result.Succeeded)
-            return BadRequest(result.Errors);
-
-        stored.UsedAt = DateTime.UtcNow;
-
-        // Whoever knew the old password may well not be the account owner — that is the usual
-        // reason to reset one. Cutting existing sessions means a thief holding a refresh token
-        // loses access now, rather than keeping it for up to thirty more days.
-        await RevokeAllRefreshTokensAsync(stored.User.Id, ct);
-
-        // The user who locked themselves out guessing is exactly the user who then resets.
-        // Leaving the lockout would make the new password look broken for fifteen minutes.
-        await userManager.ResetAccessFailedCountAsync(stored.User);
-        await userManager.SetLockoutEndDateAsync(stored.User, null);
-
-        await db.SaveChangesAsync(ct);
-        return Ok();
-    }
-
-    private async Task ConsumeOutstandingResetTokensAsync(string userId, CancellationToken ct)
-    {
-        var now = DateTime.UtcNow;
-        var outstanding = await db.PasswordResetTokens
-            .Where(t => t.UserId == userId && t.UsedAt == null)
-            .ToListAsync(ct);
-
-        foreach (var token in outstanding)
-            token.UsedAt = now;
-    }
-
-    private async Task RevokeAllRefreshTokensAsync(string userId, CancellationToken ct)
-    {
-        var now = DateTime.UtcNow;
-        var live = await db.RefreshTokens
-            .Where(r => r.UserId == userId && r.RevokedAt == null)
-            .ToListAsync(ct);
-
-        foreach (var token in live)
-            token.RevokedAt = now;
+        return result.Succeeded ? Ok() : BadRequest(result.Errors);
     }
 
     private async Task<AuthResponse> IssueTokensAsync(AppUser user, CancellationToken ct)
