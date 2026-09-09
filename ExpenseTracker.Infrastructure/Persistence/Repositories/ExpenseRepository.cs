@@ -4,12 +4,23 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ExpenseTracker.Infrastructure.Persistence.Repositories;
 
+/// <remarks>
+/// Reads here are <c>AsNoTracking</c>; writes are not. Every method opens its own context and
+/// disposes it before returning, so a tracked read entity is detached the moment the caller
+/// sees it and the change tracker it populated is thrown away unused — pure cost. The write
+/// methods re-attach through <c>Update</c> on a fresh context, which works on a detached
+/// entity either way.
+///
+/// The rule is per query, not per repository: <see cref="DeleteAsync"/> reads a row in order to
+/// mutate it, and adding AsNoTracking there would make SaveChanges quietly do nothing.
+/// </remarks>
 public class ExpenseRepository(IDbContextFactory<AppDbContext> factory) : IExpenseRepository
 {
     public async Task<List<Expense>> GetAllAsync(CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         return await db.Expenses
+            .AsNoTracking()
             .Include(e => e.Category)
             .OrderByDescending(e => e.Date)
             .ToListAsync(ct);
@@ -19,6 +30,7 @@ public class ExpenseRepository(IDbContextFactory<AppDbContext> factory) : IExpen
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         return await db.Expenses
+            .AsNoTracking()
             .Include(e => e.Category)
             .Where(e => e.Date.Year == year && e.Date.Month == month)
             .OrderByDescending(e => e.Date)
@@ -41,9 +53,11 @@ public class ExpenseRepository(IDbContextFactory<AppDbContext> factory) : IExpen
         return await BuildFilteredQuery(db, filter).SumAsync(e => e.Amount, ct);
     }
 
+    // Only the two read methods above use this, so the no-tracking call belongs here rather
+    // than at each call site.
     private static IQueryable<Expense> BuildFilteredQuery(AppDbContext db, ExpenseFilter filter)
     {
-        var query = db.Expenses.Include(e => e.Category).AsQueryable();
+        var query = db.Expenses.AsNoTracking().Include(e => e.Category).AsQueryable();
 
         if (filter.From.HasValue)
             query = query.Where(e => e.Date >= filter.From.Value);
@@ -94,6 +108,7 @@ public class ExpenseRepository(IDbContextFactory<AppDbContext> factory) : IExpen
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var expenses = await db.Expenses
+            .AsNoTracking()
             .Where(e => e.Date.Year == year)
             .ToListAsync(ct);
 
@@ -106,6 +121,7 @@ public class ExpenseRepository(IDbContextFactory<AppDbContext> factory) : IExpen
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var expenses = await db.Expenses
+            .AsNoTracking()
             .Include(e => e.Category)
             .Where(e => e.Date.Year == year && e.Date.Month == month)
             .ToListAsync(ct);

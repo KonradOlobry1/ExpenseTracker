@@ -200,3 +200,21 @@
 
 .login-error { color: #f44336; font-size: .875rem; }
 .validation-message { color: #f44336; font-size: .75rem; }
+
+/* Explanatory copy and the links between the account pages. Muted rather than hidden: on the
+   reset pages this text carries the rules (one hour, one use), not just decoration. */
+.login-note {
+    margin: 1.25rem 0 0;
+    font-size: .875rem;
+    line-height: 1.5;
+    color: var(--login-text-muted);
+}
+
+.login-note a {
+    color: var(--login-primary);
+    text-decoration: none;
+}
+
+.login-note a:hover { text-decoration: underline; }
+
+.login-success { color: #4caf50; font-size: .875rem; line-height: 1.5; }

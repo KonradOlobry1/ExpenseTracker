@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using Microsoft.Extensions.DependencyInjection;
+using ExpenseTracker.Infrastructure.External;
 using Microsoft.Extensions.Http.Resilience;
 
 namespace ExpenseTracker.Infrastructure.Tests;
@@ -71,5 +72,66 @@ public class ResiliencePolicyTests
 
         Assert.False(response.IsSuccessStatusCode);
         Assert.Equal(3, handler.AttemptCount);   // the original attempt plus MaxRetryAttempts
+    }
+}
+
+/// <summary>
+/// The timeout budget those retries run inside.
+/// </summary>
+/// <remarks>
+/// The standard handler's defaults are 10 seconds per attempt and 30 in total, which are
+/// shorter than the Azure SQL serverless resume this whole policy exists to survive — so the
+/// first call after an idle period could not succeed under them however many times it retried.
+/// It failed with a TimeoutRejectedException instead, which is what was reported.
+///
+/// These pin the widened budget, and that it is internally consistent: Polly validates the
+/// relationship between these three values and throws when the pipeline is first used, which
+/// on a device means at the first sync rather than at startup.
+/// </remarks>
+public class ResilienceBudgetTests
+{
+    private static HttpStandardResilienceOptions Configured()
+    {
+        var options = new HttpStandardResilienceOptions();
+        ResiliencePolicy.Configure(options);
+        return options;
+    }
+
+    [Fact]
+    public void One_attempt_outlasts_a_serverless_resume()
+    {
+        // The API holds the request open while EF retries the database connection, so the
+        // client's attempt has to outlast the server's whole wake-up, not just a round trip.
+        // A resume regularly takes 30 to 60 seconds; the 10-second default never stood a chance.
+        Assert.True(Configured().AttemptTimeout.Timeout >= TimeSpan.FromSeconds(45),
+            "one attempt must be able to outlast an Azure SQL serverless resume");
+    }
+
+    [Fact]
+    public void The_total_budget_leaves_room_for_more_than_one_attempt()
+    {
+        var options = Configured();
+
+        Assert.True(options.TotalRequestTimeout.Timeout >= options.AttemptTimeout.Timeout * 2,
+            "a total budget that cannot fit a second attempt makes the retries decorative");
+    }
+
+    [Fact]
+    public async Task The_options_actually_pass_Pollys_validation()
+    {
+        // Not a formality. The sampling window must be at least twice the attempt timeout, and
+        // widening the attempt without widening the window throws — at first use, on a device,
+        // which is the worst possible place to find out.
+        var services = new ServiceCollection();
+        services.AddHttpClient("budget")
+            .ConfigurePrimaryHttpMessageHandler(() => new FlakyHandler(failuresBeforeSuccess: 0))
+            .AddStandardResilienceHandler(ResiliencePolicy.Configure);
+
+        var client = services.BuildServiceProvider()
+            .GetRequiredService<IHttpClientFactory>().CreateClient("budget");
+
+        var exception = await Record.ExceptionAsync(() => client.GetAsync("https://stub.local/probe"));
+
+        Assert.Null(exception);
     }
 }

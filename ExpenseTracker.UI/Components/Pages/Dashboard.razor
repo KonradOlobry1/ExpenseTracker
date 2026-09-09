@@ -4,6 +4,8 @@
 @inject IIncomeService IncomeService
 @inject ICurrencyService CurrencyService
 @inject ILocalizationService L
+@inject ISyncService SyncService
+@implements IDisposable
 
 <MudText Typo="Typo.h5" Class="mb-4">@L["Dashboard_Title"]</MudText>
 
@@ -100,6 +102,35 @@
 
     protected override async Task OnInitializedAsync()
     {
+        SyncService.SyncStateChanged += OnSyncStateChanged;
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Re-reads the figures once a sync finishes.
+    /// </summary>
+    /// <remarks>
+    /// The sync that runs when the app opens starts in MainLayout and finishes after this page
+    /// has already drawn, so without this the dashboard would show whatever the device knew
+    /// before the sync and only pick up the rest on the next navigation — which reads as the
+    /// sync not having worked.
+    /// </remarks>
+    void OnSyncStateChanged()
+    {
+        // Fires at both ends of a sync; only the finishing edge has new data to show.
+        if (SyncService.IsSyncing) return;
+
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose() => SyncService.SyncStateChanged -= OnSyncStateChanged;
+
+    async Task LoadAsync()
+    {
         var today = DateTime.Today;
 
         var expenses = await ExpenseService.GetByMonthAsync(today.Year, today.Month);
@@ -108,6 +139,14 @@
         _monthIncome = await IncomeService.GetMonthlyEquivalentTotalAsync();
         _remaining   = _monthIncome - _monthTotal - _monthlySubBurn;
         _spentPercent = _monthIncome > 0 ? (double)(_monthTotal / _monthIncome * 100) : 0;
+
+        // Cleared rather than merely overwritten: this method runs again after every sync, and
+        // the block below only assigns when there is something to assign. A month whose last
+        // expense arrived as a tombstone would otherwise keep showing its old top category.
+        _topCategory = null;
+        _topCategoryAmount = 0;
+        _categoryLabels = [];
+        _categoryAmounts = [];
 
         var categoryTotals = await ExpenseService.GetCategoryTotalsAsync(today.Year, today.Month);
         if (categoryTotals.Count > 0)

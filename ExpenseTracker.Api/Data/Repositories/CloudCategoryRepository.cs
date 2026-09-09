@@ -18,13 +18,15 @@ namespace ExpenseTracker.Api.Data.Repositories;
 public class CloudCategoryRepository(IDbContextFactory<ApiDbContext> factory, ICurrentUser user)
     : ICategoryRepository
 {
+    // Deliberately tracked: DeleteAsync reads through this to mutate the row it finds. The read
+    // below adds AsNoTracking itself.
     private IQueryable<Category> Mine(ApiDbContext db) =>
         db.Categories.Where(c => c.UserId == user.UserId && !c.IsDeleted);
 
     public async Task<List<Category>> GetAllAsync(CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        return await Mine(db).OrderBy(c => c.Name).ToListAsync(ct);
+        return await Mine(db).AsNoTracking().OrderBy(c => c.Name).ToListAsync(ct);
     }
 
     public async Task<Category> CreateAsync(Category category, CancellationToken ct = default)

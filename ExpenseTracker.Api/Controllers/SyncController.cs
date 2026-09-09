@@ -171,7 +171,10 @@ public class SyncController(ApiDbContext db) : ControllerBase
 
         // Settings ignore `since`. They are four fields, and a client that filtered them out
         // as unchanged would have no way to notice a value it had never seen.
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        //
+        // No tracking, unlike the identical-looking read in ApplySettingsAsync: pull only
+        // copies these four values into the response, where that one edits them.
+        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
 
         return Ok(new SyncPullResponse(
             (await Changed(db.Expenses, userId, sinceTime, ct)).Select(e => e.ToDto(SyncIdOf(e.CategoryId))).ToList(),
@@ -185,11 +188,16 @@ public class SyncController(ApiDbContext db) : ControllerBase
     }
 
     /// <summary>Rows for this user changed since the given server time; all of them if unset.</summary>
+    /// <remarks>
+    /// Pull is the read half of sync — every row here is mapped to a DTO and never written
+    /// back — so nothing needs tracking. The push half deliberately does track: its upserts
+    /// edit the rows they find.
+    /// </remarks>
     private static Task<List<TEntity>> Changed<TEntity>(
         DbSet<TEntity> set, string userId, DateTime since, CancellationToken ct)
         where TEntity : class, ISyncEntity
     {
-        var query = set.Where(e => e.UserId == userId);
+        var query = set.AsNoTracking().Where(e => e.UserId == userId);
 
         if (since != DateTime.MinValue)
             query = query.Where(e => (e.UpdatedAt != null && e.UpdatedAt > since)

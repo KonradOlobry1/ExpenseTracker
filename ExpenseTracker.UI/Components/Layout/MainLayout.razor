@@ -8,7 +8,10 @@
 @inject IExpenseService ExpenseService
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
+@inject ILogger<MainLayout> Logger
+@inject IDatabaseInitializer DatabaseInitializer
 @implements IDisposable
+@using Microsoft.Extensions.Logging
 
 <MudThemeProvider Theme="_theme" IsDarkMode="ThemeService.IsDarkMode" />
 <MudDialogProvider />
@@ -104,6 +107,7 @@ else
     bool _hasSession;
     bool _sessionChecked;
     bool _isSyncing;
+    bool _syncedOnOpen;
     string _lastSyncText = "";
 
     readonly MudTheme _theme = new()
@@ -132,6 +136,13 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // First, before anything below can read the database. Nothing renders until
+        // _sessionChecked is set at the end of LoadAuthStateAsync, so a device applying
+        // migrations after an update waits behind the spinner that is already there — rather
+        // than behind a blocked launch thread, which is where this used to happen.
+        // No-op on the web, whose schema is applied by the API at startup.
+        await DatabaseInitializer.EnsureReadyAsync();
+
         ThemeService.OnChanged += Refresh;
         L.OnChanged += Refresh;
         SyncService.SyncStateChanged += OnSyncStateChanged;
@@ -163,6 +174,56 @@ else
         }
 
         await InvokeAsync(StateHasChanged);
+
+        SyncOnOpen();
+    }
+
+    /// <summary>
+    /// Pulls whatever changed on other devices, once, as soon as there is a live session.
+    /// </summary>
+    /// <remarks>
+    /// Hangs off <see cref="LoadAuthStateAsync"/> rather than a first-render hook so that it
+    /// covers both ways into the app: opened already signed in, and opened signed out then
+    /// signed in at the login page. The flag keeps it to once per launch — this method runs
+    /// again on every navigation.
+    ///
+    /// Guarded on <c>IsSupported</c> because the web reads the cloud database directly and has
+    /// no replica to reconcile; there, this would be a network round trip that changes nothing.
+    /// </remarks>
+    void SyncOnOpen()
+    {
+        if (_syncedOnOpen || !_isLoggedIn || !SyncService.IsSupported) return;
+
+        _syncedOnOpen = true;
+        _ = SyncOnOpenAsync();
+    }
+
+    /// <remarks>
+    /// Deliberately not awaited by the caller. The local replica is fully usable with no
+    /// network, so holding the first render behind a round trip would turn "opened the app on a
+    /// train" into a spinner over data the device already has.
+    ///
+    /// Deliberately silent about failure, unlike <see cref="SyncNow"/>. That one sends the user
+    /// to the login page on SessionExpired, which is right for a button someone just pressed —
+    /// but SessionExpired also covers "the refresh could not be attempted", which is exactly
+    /// what no signal looks like. Bouncing someone to a login form because their train went
+    /// into a tunnel is worse than showing them what is already on the device. The app-bar icon
+    /// still reports progress through SyncStateChanged, and the sync button is still there.
+    /// </remarks>
+    async Task SyncOnOpenAsync()
+    {
+        try
+        {
+            await SyncService.SyncAsync();
+        }
+        catch (Exception ex)
+        {
+            // SyncAsync turns the failures it expects into a SyncResult, so arriving here means
+            // something it did not anticipate. Nothing is lost — the replica is intact and the
+            // user can still sync by hand — but an unobserved exception from a fire-and-forget
+            // task must not be left to surface as a crash later.
+            Logger.LogError(ex, "Sync on open failed unexpectedly.");
+        }
     }
 
     bool IsOnLoginPage =>

@@ -9,7 +9,9 @@ public class SubscriptionRepository(IDbContextFactory<AppDbContext> factory) : I
     public async Task<List<Subscription>> GetAllAsync(bool activeOnly = true, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var query = db.Subscriptions.Include(s => s.Category).AsQueryable();
+        // No tracking: this context is disposed on return, so nothing can be saved through it.
+        // DeleteAsync below reads to mutate and deliberately stays tracked.
+        var query = db.Subscriptions.AsNoTracking().Include(s => s.Category).AsQueryable();
         if (activeOnly)
             query = query.Where(s => s.IsActive);
         return await query.OrderBy(s => s.Name).ToListAsync(ct);
@@ -45,6 +47,6 @@ public class SubscriptionRepository(IDbContextFactory<AppDbContext> factory) : I
     public async Task<List<Subscription>> GetActiveAsync(CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        return await db.Subscriptions.Where(s => s.IsActive).ToListAsync(ct);
+        return await db.Subscriptions.AsNoTracking().Where(s => s.IsActive).ToListAsync(ct);
     }
 }

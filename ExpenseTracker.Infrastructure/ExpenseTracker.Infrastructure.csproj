@@ -10,6 +10,12 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
+    <!-- The HTTP clients live here, so the policy they run under and the exception that policy
+         throws belong here too. The head calls ResiliencePolicy.Configure when it registers
+         them; AuthService and SyncService catch TimeoutRejectedException, which is neither an
+         HttpRequestException nor an OperationCanceledException and so is caught by nothing
+         else. -->
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
   </ItemGroup>
 
   <ItemGroup>
