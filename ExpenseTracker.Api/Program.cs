@@ -2,6 +2,7 @@
 using System.Text;
 using ExpenseTracker.Api.Data;
 using ExpenseTracker.Api.Data.Repositories;
+using ExpenseTracker.Api.Notifications;
 using ExpenseTracker.Api.Web;
 using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Application.Services;
@@ -189,6 +190,11 @@ builder.Services.AddScoped<IExpenseRepository, CloudExpenseRepository>();
 builder.Services.AddScoped<ICategoryRepository, CloudCategoryRepository>();
 builder.Services.AddScoped<IIncomeRepository, CloudIncomeRepository>();
 builder.Services.AddScoped<ISubscriptionRepository, CloudSubscriptionRepository>();
+
+// Password reset delivery. The logging implementation is a development stand-in: outside
+// Development it deliberately delivers nothing and logs an error, so reset does not silently
+// appear to work in production before a real provider is wired up. See LoggingPasswordResetSender.
+builder.Services.AddScoped<IPasswordResetSender, LoggingPasswordResetSender>();
 
 // Same Application services the MAUI app uses — they only know the repository interfaces.
 builder.Services.AddScoped<IExpenseService, ExpenseService>();

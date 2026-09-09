@@ -5,6 +5,7 @@ using System.Text;
 using ExpenseTracker.Api.Data;
 using ExpenseTracker.Api.DTOs;
 using ExpenseTracker.Api.Models;
+using ExpenseTracker.Api.Notifications;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -23,17 +24,28 @@ public class AuthController(
     UserManager<AppUser> userManager,
     SignInManager<AppUser> signInManager,
     ApiDbContext db,
-    IConfiguration configuration) : ControllerBase
+    IConfiguration configuration,
+    IPasswordResetSender resetSender) : ControllerBase
 {
     // Sliding via rotation: every refresh issues a fresh 30-day token, so a device in active
     // use never has to fall back to a password, while one that stops syncing eventually needs
     // one again.
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
+    // An hour, against the refresh token's thirty days. This one sits in a mailbox rather than
+    // in a device's secure storage: long enough to go and read the message, short enough that
+    // finding it months later is worth nothing.
+    private static readonly TimeSpan PasswordResetTokenLifetime = TimeSpan.FromHours(1);
+
     [HttpPost("register")]
-    public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
+    public async Task<ActionResult<AuthResponse>> Register(
+        [FromBody] RegisterRequest request, CancellationToken ct)
     {
         var user = new AppUser { UserName = request.Email, Email = request.Email };
+
+        // UserManager and SignInManager take no CancellationToken — they read their own from
+        // a protected property that is not settable from here. Identity's own calls therefore
+        // run to completion regardless; ct reaches everything after them.
         var result = await userManager.CreateAsync(user, request.Password);
 
         if (!result.Succeeded)
@@ -41,13 +53,14 @@ public class AuthController(
 
         // Matches the web registration path (Web/Account/Login.razor): an account with no
         // categories cannot create an expense at all.
-        await DefaultCategories.EnsureForUserAsync(db, user.Id);
+        await DefaultCategories.EnsureForUserAsync(db, user.Id, ct);
 
-        return Ok(await IssueTokensAsync(user));
+        return Ok(await IssueTokensAsync(user, ct));
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
+    public async Task<ActionResult<AuthResponse>> Login(
+        [FromBody] LoginRequest request, CancellationToken ct)
     {
         var user = await userManager.FindByEmailAsync(request.Email);
 
@@ -67,7 +80,7 @@ public class AuthController(
         if (!signIn.Succeeded)
             return Unauthorized("Invalid email or password.");
 
-        return Ok(await IssueTokensAsync(user));
+        return Ok(await IssueTokensAsync(user, ct));
     }
 
     /// <summary>
@@ -78,12 +91,13 @@ public class AuthController(
     /// theft detection, not a substitute for one.
     /// </summary>
     [HttpPost("refresh")]
-    public async Task<ActionResult<AuthResponse>> Refresh([FromBody] RefreshRequest request)
+    public async Task<ActionResult<AuthResponse>> Refresh(
+        [FromBody] RefreshRequest request, CancellationToken ct)
     {
         var hash = Hash(request.RefreshToken);
         var stored = await db.RefreshTokens
             .Include(r => r.User)
-            .FirstOrDefaultAsync(r => r.TokenHash == hash);
+            .FirstOrDefaultAsync(r => r.TokenHash == hash, ct);
 
         if (stored is null || stored.RevokedAt is not null || stored.ExpiresAt <= DateTime.UtcNow
             || stored.User is null)
@@ -91,7 +105,10 @@ public class AuthController(
 
         stored.RevokedAt = DateTime.UtcNow;
 
-        return Ok(await IssueTokensAsync(stored.User));
+        // Revoking the old token and issuing the new pair share one SaveChanges inside
+        // IssueTokensAsync, so rotation stays atomic: a cancellation between the two would
+        // otherwise be able to retire a token without handing back its replacement.
+        return Ok(await IssueTokensAsync(stored.User, ct));
     }
 
     /// <summary>
@@ -105,21 +122,135 @@ public class AuthController(
     /// useful to tell an anonymous caller about which case it was.
     /// </remarks>
     [HttpPost("revoke")]
-    public async Task<IActionResult> Revoke([FromBody] RefreshRequest request)
+    public async Task<IActionResult> Revoke([FromBody] RefreshRequest request, CancellationToken ct)
     {
         var hash = Hash(request.RefreshToken);
-        var stored = await db.RefreshTokens.FirstOrDefaultAsync(r => r.TokenHash == hash);
+        var stored = await db.RefreshTokens.FirstOrDefaultAsync(r => r.TokenHash == hash, ct);
 
         if (stored is not null && stored.RevokedAt is null)
         {
             stored.RevokedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
         }
 
         return Ok();
     }
 
-    private async Task<AuthResponse> IssueTokensAsync(AppUser user)
+    /// <summary>
+    /// Starts a password reset: issues a single-use token and hands it to the sender, which
+    /// delivers it to the address on the account.
+    /// </summary>
+    /// <remarks>
+    /// Always 200, saying nothing about whether the address is registered — the same reasoning
+    /// as Login treating an unknown email and a wrong password identically. An endpoint that
+    /// answered 404 here would be a membership oracle needing no credentials at all.
+    ///
+    /// The response time still differs slightly, because only a real account does database
+    /// work. Closing that would mean doing equivalent work for addresses that do not exist;
+    /// against an endpoint that is already rate limited per IP, the timing signal is not worth
+    /// the machinery, but it is a real remaining difference rather than none.
+    /// </remarks>
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword(
+        [FromBody] ForgotPasswordRequest request, CancellationToken ct)
+    {
+        var user = await userManager.FindByEmailAsync(request.Email);
+
+        if (user is not null)
+        {
+            // Asking again retires the previous link rather than adding a second live one.
+            await ConsumeOutstandingResetTokensAsync(user.Id, ct);
+
+            var token = GenerateOpaqueToken();
+            db.PasswordResetTokens.Add(new PasswordResetToken
+            {
+                UserId = user.Id,
+                TokenHash = Hash(token),
+                ExpiresAt = DateTime.UtcNow.Add(PasswordResetTokenLifetime),
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+
+            // Only the sender ever sees the raw token. It is never returned from here.
+            await resetSender.SendAsync(request.Email, token, ct);
+        }
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Spends a reset token and sets the new password.
+    /// </summary>
+    /// <remarks>
+    /// Two separate checks, deliberately. The opaque token above establishes who is asking —
+    /// it is the proof that this caller can read the account's email. Identity's own token,
+    /// generated and consumed in the same breath below, is what runs the configured password
+    /// policy and rotates the security stamp; setting the hash directly would skip both, and
+    /// RemovePassword-then-AddPassword could leave an account with no password at all when the
+    /// second half fails validation.
+    /// </remarks>
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword(
+        [FromBody] ResetPasswordRequest request, CancellationToken ct)
+    {
+        var hash = Hash(request.Token);
+        var stored = await db.PasswordResetTokens
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+
+        // Unknown, spent and expired are one answer: a caller holding a bad token learns
+        // nothing about which kind of bad it is.
+        if (stored is null || stored.UsedAt is not null || stored.ExpiresAt <= DateTime.UtcNow
+            || stored.User is null)
+            return BadRequest("This reset link is invalid or has expired.");
+
+        var identityToken = await userManager.GeneratePasswordResetTokenAsync(stored.User);
+        var result = await userManager.ResetPasswordAsync(stored.User, identityToken, request.NewPassword);
+
+        // A rejected password must not spend the token — otherwise one typo costs the user
+        // their only link and they start the whole flow again.
+        if (!result.Succeeded)
+            return BadRequest(result.Errors);
+
+        stored.UsedAt = DateTime.UtcNow;
+
+        // Whoever knew the old password may well not be the account owner — that is the usual
+        // reason to reset one. Cutting existing sessions means a thief holding a refresh token
+        // loses access now, rather than keeping it for up to thirty more days.
+        await RevokeAllRefreshTokensAsync(stored.User.Id, ct);
+
+        // The user who locked themselves out guessing is exactly the user who then resets.
+        // Leaving the lockout would make the new password look broken for fifteen minutes.
+        await userManager.ResetAccessFailedCountAsync(stored.User);
+        await userManager.SetLockoutEndDateAsync(stored.User, null);
+
+        await db.SaveChangesAsync(ct);
+        return Ok();
+    }
+
+    private async Task ConsumeOutstandingResetTokensAsync(string userId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var outstanding = await db.PasswordResetTokens
+            .Where(t => t.UserId == userId && t.UsedAt == null)
+            .ToListAsync(ct);
+
+        foreach (var token in outstanding)
+            token.UsedAt = now;
+    }
+
+    private async Task RevokeAllRefreshTokensAsync(string userId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var live = await db.RefreshTokens
+            .Where(r => r.UserId == userId && r.RevokedAt == null)
+            .ToListAsync(ct);
+
+        foreach (var token in live)
+            token.RevokedAt = now;
+    }
+
+    private async Task<AuthResponse> IssueTokensAsync(AppUser user, CancellationToken ct)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
             configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key not configured")));
@@ -149,7 +280,7 @@ public class AuthController(
             ExpiresAt = DateTime.UtcNow.Add(RefreshTokenLifetime),
             CreatedAt = DateTime.UtcNow,
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
 
         return new AuthResponse(accessToken, expiry, refreshToken);
     }

@@ -36,6 +36,7 @@ public class ApiDbContext(DbContextOptions<ApiDbContext> options)
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -58,6 +59,19 @@ public class ApiDbContext(DbContextOptions<ApiDbContext> options)
             b.HasOne(r => r.User)
              .WithMany()
              .HasForeignKey(r => r.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Same shape as RefreshToken, including the unique hash index: two live tokens can
+        // never collide, and a lookup by hash is the only way either is ever read.
+        modelBuilder.Entity<PasswordResetToken>(b =>
+        {
+            b.Property(t => t.UserId).IsRequired();
+            b.Property(t => t.TokenHash).IsRequired().HasMaxLength(64);
+            b.HasIndex(t => t.TokenHash).IsUnique();
+            b.HasOne(t => t.User)
+             .WithMany()
+             .HasForeignKey(t => t.UserId)
              .OnDelete(DeleteBehavior.Cascade);
         });
 

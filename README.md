@@ -134,7 +134,7 @@ docker run -p 8080:8080 -e "Jwt__Key=<32+ bytes>" -e "ConnectionStrings__Default
 
 ## Tests
 
-114 tests across three projects. Run them individually — `dotnet test` on the solution drags
+129 tests across three projects. Run them individually — `dotnet test` on the solution drags
 the MAUI Android head through a full package build for no benefit.
 
 ```bash
@@ -145,7 +145,7 @@ dotnet test ExpenseTracker.Domain.Tests; dotnet test ExpenseTracker.Infrastructu
 |---|---|---|
 | `ExpenseTracker.Domain.Tests` | 19 | Billing-cycle arithmetic and forecasting |
 | `ExpenseTracker.Infrastructure.Tests` | 38 | The device half of sync: pulled tombstones, the settings merge, what a failed push must not do, silent token refresh, sign-out |
-| `ExpenseTracker.Api.Tests` | 57 | The real API on in-memory SQLite: auth, lockout, rate limits, push/pull, conflict resolution, refresh token issuance and rotation |
+| `ExpenseTracker.Api.Tests` | 72 | The real API on in-memory SQLite: auth, lockout, rate limits, push/pull, conflict resolution, refresh token issuance and rotation, password reset |
 
 ## CI
 

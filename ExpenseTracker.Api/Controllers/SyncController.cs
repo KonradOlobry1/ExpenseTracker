@@ -19,8 +19,15 @@ public class SyncController(ApiDbContext db) : ControllerBase
     private string CurrentUserId =>
         User.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new UnauthorizedAccessException();
 
+    /// <remarks>
+    /// A push that the caller abandons is cancelled mid-flight, which can leave the categories
+    /// saved on line one committed while the rows that follow are not. That is safe here and
+    /// not a new hazard: upserts match on (UserId, SyncId) and resolve by the client's own edit
+    /// stamp, so the next sync re-sends the same rows and lands on the same result. The device
+    /// only advances its last-sync marker once the whole call returns 200.
+    /// </remarks>
     [HttpPost("push")]
-    public async Task<IActionResult> Push([FromBody] SyncPushRequest request)
+    public async Task<IActionResult> Push([FromBody] SyncPushRequest request, CancellationToken ct)
     {
         var userId = CurrentUserId;
         var now = DateTime.UtcNow;
@@ -38,12 +45,12 @@ public class SyncController(ApiDbContext db) : ControllerBase
         // Categories first, and saved, so the rows that reference them can resolve their
         // freshly assigned keys.
         await UpsertAsync(db.Categories, request.Categories, userId, now,
-            d => d.SyncId, (d, e) => d.Apply(e), d => d.ToEntity(userId));
-        await db.SaveChangesAsync();
+            d => d.SyncId, (d, e) => d.Apply(e), d => d.ToEntity(userId), ct: ct);
+        await db.SaveChangesAsync(ct);
 
         var categoryIdBySyncId = await db.Categories
             .Where(c => c.UserId == userId)
-            .ToDictionaryAsync(c => c.SyncId, c => c.Id);
+            .ToDictionaryAsync(c => c.SyncId, c => c.Id, ct);
 
         // A row whose category this account has never seen is skipped rather than dropped
         // on the floor with a null FK; the next sync brings it once the category arrives.
@@ -54,20 +61,20 @@ public class SyncController(ApiDbContext db) : ControllerBase
             d => d.SyncId,
             (d, e) => d.Apply(e, Resolve(d.CategorySyncId)!.Value),
             d => Resolve(d.CategorySyncId) is { } id ? d.ToEntity(userId, id) : null,
-            d => Resolve(d.CategorySyncId) is not null);
+            d => Resolve(d.CategorySyncId) is not null, ct);
 
         await UpsertAsync(db.Subscriptions, request.Subscriptions, userId, now,
             d => d.SyncId,
             (d, e) => d.Apply(e, Resolve(d.CategorySyncId)!.Value),
             d => Resolve(d.CategorySyncId) is { } id ? d.ToEntity(userId, id) : null,
-            d => Resolve(d.CategorySyncId) is not null);
+            d => Resolve(d.CategorySyncId) is not null, ct);
 
         await UpsertAsync(db.Incomes, request.Incomes, userId, now,
-            d => d.SyncId, (d, e) => d.Apply(e), d => d.ToEntity(userId));
+            d => d.SyncId, (d, e) => d.Apply(e), d => d.ToEntity(userId), ct: ct);
 
-        await ApplySettingsAsync(request.Settings, userId);
+        await ApplySettingsAsync(request.Settings, userId, ct);
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
         return Ok();
     }
 
@@ -78,11 +85,12 @@ public class SyncController(ApiDbContext db) : ControllerBase
     /// The values themselves are not validated here: every client resolves an unknown
     /// currency or language back to its own default when reading.
     /// </summary>
-    private async Task ApplySettingsAsync(SyncSettingsDto? settings, string userId)
+    private async Task ApplySettingsAsync(
+        SyncSettingsDto? settings, string userId, CancellationToken ct)
     {
         if (settings is null) return;
 
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null || settings.UpdatedAt <= user.SettingsUpdatedAt) return;
 
         user.Currency = settings.Currency;
@@ -106,7 +114,7 @@ public class SyncController(ApiDbContext db) : ControllerBase
     private async Task UpsertAsync<TDto, TEntity>(
         DbSet<TEntity> set, List<TDto>? items, string userId, DateTime now,
         Func<TDto, Guid> syncId, Action<TDto, TEntity> apply, Func<TDto, TEntity?> create,
-        Func<TDto, bool>? canApply = null)
+        Func<TDto, bool>? canApply = null, CancellationToken ct = default)
         where TEntity : class, ISyncEntity
     {
         if (items is not { Count: > 0 }) return;
@@ -114,7 +122,7 @@ public class SyncController(ApiDbContext db) : ControllerBase
         var incomingIds = items.Select(syncId).ToHashSet();
         var bySyncId = await set
             .Where(e => e.UserId == userId && incomingIds.Contains(e.SyncId))
-            .ToDictionaryAsync(e => e.SyncId);
+            .ToDictionaryAsync(e => e.SyncId, ct);
 
         foreach (var dto in items)
         {
@@ -148,27 +156,28 @@ public class SyncController(ApiDbContext db) : ControllerBase
     }
 
     [HttpGet("pull")]
-    public async Task<ActionResult<SyncPullResponse>> Pull([FromQuery] DateTime? since)
+    public async Task<ActionResult<SyncPullResponse>> Pull(
+        [FromQuery] DateTime? since, CancellationToken ct)
     {
         var userId = CurrentUserId;
         var sinceTime = since ?? DateTime.MinValue;
 
         var categorySyncIdById = await db.Categories
             .Where(c => c.UserId == userId)
-            .ToDictionaryAsync(c => c.Id, c => c.SyncId);
+            .ToDictionaryAsync(c => c.Id, c => c.SyncId, ct);
 
         Guid SyncIdOf(int categoryId) =>
             categorySyncIdById.TryGetValue(categoryId, out var s) ? s : Guid.Empty;
 
         // Settings ignore `since`. They are four fields, and a client that filtered them out
         // as unchanged would have no way to notice a value it had never seen.
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
 
         return Ok(new SyncPullResponse(
-            (await Changed(db.Expenses, userId, sinceTime)).Select(e => e.ToDto(SyncIdOf(e.CategoryId))).ToList(),
-            (await Changed(db.Incomes, userId, sinceTime)).Select(i => i.ToDto()).ToList(),
-            (await Changed(db.Subscriptions, userId, sinceTime)).Select(s => s.ToDto(SyncIdOf(s.CategoryId))).ToList(),
-            (await Changed(db.Categories, userId, sinceTime)).Select(c => c.ToDto()).ToList(),
+            (await Changed(db.Expenses, userId, sinceTime, ct)).Select(e => e.ToDto(SyncIdOf(e.CategoryId))).ToList(),
+            (await Changed(db.Incomes, userId, sinceTime, ct)).Select(i => i.ToDto()).ToList(),
+            (await Changed(db.Subscriptions, userId, sinceTime, ct)).Select(s => s.ToDto(SyncIdOf(s.CategoryId))).ToList(),
+            (await Changed(db.Categories, userId, sinceTime, ct)).Select(c => c.ToDto()).ToList(),
             DateTime.UtcNow,
             user is null
                 ? null
@@ -177,7 +186,7 @@ public class SyncController(ApiDbContext db) : ControllerBase
 
     /// <summary>Rows for this user changed since the given server time; all of them if unset.</summary>
     private static Task<List<TEntity>> Changed<TEntity>(
-        DbSet<TEntity> set, string userId, DateTime since)
+        DbSet<TEntity> set, string userId, DateTime since, CancellationToken ct)
         where TEntity : class, ISyncEntity
     {
         var query = set.Where(e => e.UserId == userId);
@@ -186,7 +195,7 @@ public class SyncController(ApiDbContext db) : ControllerBase
             query = query.Where(e => (e.UpdatedAt != null && e.UpdatedAt > since)
                                   || (e.UpdatedAt == null && e.CreatedAt > since));
 
-        return query.ToListAsync();
+        return query.ToListAsync(ct);
     }
 
     private static bool HasEmptySyncId(SyncPushRequest request) =>
