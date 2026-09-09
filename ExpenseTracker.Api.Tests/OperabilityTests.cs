@@ -1,7 +1,10 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
+using ExpenseTracker.Api.Controllers;
 using ExpenseTracker.Contracts;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Routing;
 using static ExpenseTracker.Api.Tests.TestClient;
 
 namespace ExpenseTracker.Api.Tests;
@@ -16,6 +19,47 @@ public class WebSyncCapabilityTests
     [Fact]
     public void The_web_reports_that_it_does_not_sync()
         => Assert.False(new ExpenseTracker.Api.Web.NoOpSyncService().IsSupported);
+}
+
+/// <summary>
+/// Every endpoint takes a <see cref="CancellationToken"/>, so a caller that walks away stops
+/// the work it started.
+/// </summary>
+/// <remarks>
+/// The services and repositories behind these controllers have always threaded one; the
+/// controllers themselves did not, so the token stopped at the front door. A phone that lost
+/// signal mid-push left the server upserting rows and writing them for a request nobody was
+/// waiting on any more.
+///
+/// Reflection rather than review, because the failure mode is an endpoint added later that
+/// silently omits it — nothing else here would notice.
+/// </remarks>
+public class EndpointCancellationTests
+{
+    public static TheoryData<Type> Controllers =>
+        new() { typeof(AuthController), typeof(SyncController) };
+
+    [Theory]
+    [MemberData(nameof(Controllers))]
+    public void Every_endpoint_accepts_a_cancellation_token(Type controller)
+    {
+        var endpoints = controller
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetCustomAttributes<HttpMethodAttribute>().Any())
+            .ToList();
+
+        // Without this the test passes for a controller whose endpoints the query failed to
+        // find at all, which is the one way a reflection assertion lies.
+        Assert.NotEmpty(endpoints);
+
+        var missing = endpoints
+            .Where(m => m.GetParameters().All(p => p.ParameterType != typeof(CancellationToken)))
+            .Select(m => m.Name)
+            .ToList();
+
+        Assert.True(missing.Count == 0,
+            $"{controller.Name} endpoints without a CancellationToken: {string.Join(", ", missing)}");
+    }
 }
 
 /// <summary>
