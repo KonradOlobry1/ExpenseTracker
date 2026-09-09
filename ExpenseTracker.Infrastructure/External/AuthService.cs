@@ -8,6 +8,7 @@ using ExpenseTracker.Infrastructure.Persistence;
 using ExpenseTracker.Presentation.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Polly.Timeout;
 
 namespace ExpenseTracker.Infrastructure.External;
 
@@ -70,7 +71,7 @@ public class AuthService : IAuthService
             await StoreTokensAsync(auth);
             return AuthResult.Success();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutRejectedException)
         {
             _logger.LogError(ex, "Login failed while contacting the API.");
             return AuthResult.Fail(AuthFailureReason.NetworkError);
@@ -111,7 +112,7 @@ public class AuthService : IAuthService
             await StoreTokensAsync(auth);
             return AuthResult.Success();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutRejectedException)
         {
             _logger.LogError(ex, "Registration failed while contacting the API.");
             return AuthResult.Fail(AuthFailureReason.NetworkError);
@@ -162,7 +163,7 @@ public class AuthService : IAuthService
                 var baseUrl = ApiBaseUrl.TrimEnd('/');
                 await _http.PostAsJsonAsync($"{baseUrl}/api/auth/revoke", new { RefreshToken = refreshToken });
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutRejectedException)
             {
                 // Signing out locally must succeed even when the server can't be reached —
                 // an unreachable revoke just means a stale token lingers server-side until it
@@ -252,7 +253,8 @@ public class AuthService : IAuthService
             await StoreTokensAsync(auth);
             return true;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException
+                                or TimeoutRejectedException)
         {
             // Unreachable, or responded with something unparseable — neither is evidence the
             // refresh token itself is bad, so unlike a rejection it stays for next time.

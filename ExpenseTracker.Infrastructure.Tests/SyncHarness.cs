@@ -104,6 +104,14 @@ public class StubApi : HttpMessageHandler
     /// connection refused, anything transport-level rather than an HTTP status.</summary>
     public bool ThrowOnSend { get; set; }
 
+    /// <summary>
+    /// Throws this specific exception instead of responding. For the failures that do not
+    /// arrive as an <see cref="HttpRequestException"/> — notably Polly's
+    /// <c>TimeoutRejectedException</c>, which the resilience pipeline raises when it gives up
+    /// waiting and which is not a subclass of anything else the client catches.
+    /// </summary>
+    public Exception? SendException { get; set; }
+
     /// <summary>Every push payload the client sent, in order.</summary>
     public List<SyncPushRequest> Pushes { get; } = [];
 
@@ -120,6 +128,9 @@ public class StubApi : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        if (SendException is not null)
+            throw SendException;
+
         if (ThrowOnSend)
             throw new HttpRequestException("Stubbed network failure.");
 

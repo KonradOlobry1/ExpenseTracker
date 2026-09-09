@@ -211,6 +211,7 @@ builder.Services.AddScoped<ILocalizationService, WebLocalizationService>();
 builder.Services.AddScoped<IPaymentCaptureService, PaymentCaptureServiceStub>();
 builder.Services.AddScoped<IAuthService, WebAuthService>();
 builder.Services.AddScoped<ISyncService, NoOpSyncService>();
+builder.Services.AddScoped<IDatabaseInitializer, NoOpDatabaseInitializer>();
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();

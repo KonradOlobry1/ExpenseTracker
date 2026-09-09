@@ -206,3 +206,16 @@ public class NoOpSyncService : ISyncService
         return Task.FromResult(SyncResult.Success());
     }
 }
+
+/// <summary>
+/// The web has nothing to initialise: the API applies its SQL Server migrations at startup,
+/// long before a page renders, and the schema is already there by the time a circuit exists.
+/// </summary>
+/// <remarks>
+/// Exists so the shared layout can await one interface on both heads instead of asking which
+/// one it is running on. Only the device carries a replica that arrives a version behind.
+/// </remarks>
+public class NoOpDatabaseInitializer : IDatabaseInitializer
+{
+    public Task EnsureReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
+}

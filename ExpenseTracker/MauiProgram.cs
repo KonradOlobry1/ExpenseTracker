@@ -69,10 +69,14 @@ namespace ExpenseTracker
             // This also moves both services from Scoped to Transient, which AddHttpClient does
             // by default and which is correct here — neither holds state beyond its already-
             // Singleton dependencies.
+            //
+            // ResiliencePolicy widens the standard handler's timeouts. Its defaults — 10s per
+            // attempt, 30s total — are shorter than an Azure SQL serverless resume, so the
+            // first call after an idle period could not succeed under them. See that class.
             builder.Services.AddHttpClient<IAuthService, AuthService>()
-                .AddStandardResilienceHandler();
+                .AddStandardResilienceHandler(ResiliencePolicy.Configure);
             builder.Services.AddHttpClient<ISyncService, SyncService>()
-                .AddStandardResilienceHandler();
+                .AddStandardResilienceHandler(ResiliencePolicy.Configure);
 
             // ── Platform — Payment Capture ────────────────────────────────────
 #if ANDROID
@@ -81,45 +85,25 @@ namespace ExpenseTracker
             builder.Services.AddScoped<IPaymentCaptureService, PaymentCaptureServiceStub>();
 #endif
 
-            var app = builder.Build();
-
-            // Apply migrations on first launch.
+            // Migrations run through DatabaseInitializer, which MainLayout awaits before it
+            // reads anything — behind the spinner it already shows during its session check.
             //
-            // Sample data is deliberately NOT seeded here any more. DataSeeder writes thirty
-            // expenses and ten subscriptions whenever the local database has none, which was
-            // fine as a demo but is wrong once accounts are real: a fresh install seeded them
-            // before the user signed in, and the first sync pushed all forty rows into their
-            // cloud account. Call DataSeeder.SeedAsync by hand if you want a populated demo.
-            Task.Run(async () =>
-            {
-                var factory = app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
-                var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup.Migrations");
-                await using var db = await factory.CreateDbContextAsync();
+            // They used to run right here, with Task.Run(...).GetAwaiter().GetResult() blocking
+            // the launch thread until every pending migration had replayed. On a cold first
+            // install that is the whole migration history, on whatever storage the device has,
+            // with Android's ANR watchdog running.
+            //
+            // Singleton so the gate inside it is shared: the work happens once however many
+            // callers ask.
+            builder.Services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
 
-                try
-                {
-                    var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
-                    var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
-                    logger.LogInformation("Migrations applied: {Applied}", string.Join(", ", applied));
-                    logger.LogInformation("Migrations pending: {Pending}",
-                        pending.Count == 0 ? "(none)" : string.Join(", ", pending));
+            // Sample data is deliberately NOT seeded. DataSeeder writes thirty expenses and ten
+            // subscriptions whenever the local database has none, which was fine as a demo but
+            // is wrong once accounts are real: a fresh install seeded them before the user
+            // signed in, and the first sync pushed all forty rows into their cloud account.
+            // Call DataSeeder.SeedAsync by hand if you want a populated demo.
 
-                    await db.Database.MigrateAsync();
-
-                    var still = (await db.Database.GetPendingMigrationsAsync()).ToList();
-                    if (still.Count > 0)
-                        logger.LogError("Migrations still pending after Migrate: {Pending}", string.Join(", ", still));
-                }
-                catch (Exception ex)
-                {
-                    // A failed migration leaves the local database in an unknown shape; surface
-                    // it rather than letting the app start against a half-migrated schema.
-                    logger.LogError(ex, "Database migration failed.");
-                    throw;
-                }
-            }).GetAwaiter().GetResult();
-
-            return app;
+            return builder.Build();
         }
     }
 }

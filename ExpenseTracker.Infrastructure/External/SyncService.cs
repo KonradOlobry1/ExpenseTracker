@@ -9,6 +9,7 @@ using ExpenseTracker.Infrastructure.Persistence;
 using ExpenseTracker.Presentation.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Polly.Timeout;
 
 namespace ExpenseTracker.Infrastructure.External;
 
@@ -147,6 +148,16 @@ public class SyncService : ISyncService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Sync cancelled.");
+            return SyncResult.Fail(SyncFailureReason.NetworkError);
+        }
+        catch (TimeoutRejectedException ex)
+        {
+            // The resilience pipeline gave up waiting. Deliberately its own catch: this is
+            // neither an HttpRequestException nor an OperationCanceledException — it derives
+            // straight from Polly's ExecutionRejectedException — so before this existed it
+            // sailed past every handler here and surfaced as an unhandled crash rather than a
+            // failed sync.
+            _logger.LogError(ex, "Sync failed: the API did not respond within the timeout budget.");
             return SyncResult.Fail(SyncFailureReason.NetworkError);
         }
         catch (HttpRequestException ex)
