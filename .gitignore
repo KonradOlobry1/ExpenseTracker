@@ -52,5 +52,9 @@ Thumbs.db
 ## Claude Code local settings (machine-specific permissions)
 .claude/settings.local.json
 
+## Agent working notes. Kept on the machine that generated them rather than shared:
+## they describe how a tool is pointed at this codebase, not the codebase itself.
+CLAUDE.md
+
 ## Local environment values for docker compose
 .env
