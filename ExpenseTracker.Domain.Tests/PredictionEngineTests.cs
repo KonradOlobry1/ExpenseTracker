@@ -1,7 +1,14 @@
+using System.Globalization;
 using ExpenseTracker.Domain.Entities;
 using ExpenseTracker.Domain.Services;
 
 namespace ExpenseTracker.Domain.Tests;
+
+internal static class TestDates
+{
+    public static DateTime UtcDate(int year, int month, int day) =>
+        new(year, month, day, 0, 0, 0, DateTimeKind.Utc);
+}
 
 public class NextOccurrenceTests
 {
@@ -9,7 +16,7 @@ public class NextOccurrenceTests
     public void Returns_the_start_date_when_the_subscription_has_not_begun()
     {
         var start = new DateTime(2026, 6, 10, 0, 0, 0, DateTimeKind.Local);
-        var next = PredictionEngine.NextOccurrence(start, BillingCycle.Monthly, new DateTime(2026, 1, 1));
+        var next = PredictionEngine.NextOccurrence(start, BillingCycle.Monthly, TestDates.UtcDate(2026, 1, 1));
         Assert.Equal(start, next);
     }
 
@@ -21,29 +28,27 @@ public class NextOccurrenceTests
     public void Advances_by_one_cycle_from_the_start_date(BillingCycle cycle, string expected)
     {
         var next = PredictionEngine.NextOccurrence(
-            new DateTime(2026, 1, 1), cycle, new DateTime(2026, 1, 1));
+            TestDates.UtcDate(2026, 1, 1), cycle, TestDates.UtcDate(2026, 1, 1));
 
-        Assert.Equal(DateTime.Parse(expected), next);
+        Assert.Equal(DateTime.Parse(expected, CultureInfo.InvariantCulture), next);
     }
 
     [Fact]
     public void Reference_date_landing_exactly_on_a_billing_date_returns_the_following_one()
     {
-        // The loop is `while (current <= referenceDate)`, so a due date that is *today*
-        // is treated as already billed.
         var next = PredictionEngine.NextOccurrence(
-            new DateTime(2026, 1, 15), BillingCycle.Monthly, new DateTime(2026, 2, 15));
+            TestDates.UtcDate(2026, 1, 15), BillingCycle.Monthly, TestDates.UtcDate(2026, 2, 15));
 
-        Assert.Equal(new DateTime(2026, 3, 15), next);
+        Assert.Equal(TestDates.UtcDate(2026, 3, 15), next);
     }
 
     [Fact]
     public void Clamps_to_the_last_day_when_the_target_month_is_shorter()
     {
         var next = PredictionEngine.NextOccurrence(
-            new DateTime(2026, 1, 31), BillingCycle.Monthly, new DateTime(2026, 1, 31));
+            TestDates.UtcDate(2026, 1, 31), BillingCycle.Monthly, TestDates.UtcDate(2026, 1, 31));
 
-        Assert.Equal(new DateTime(2026, 2, 28), next);
+        Assert.Equal(TestDates.UtcDate(2026, 2, 28), next);
     }
 
     [Fact]
@@ -53,20 +58,20 @@ public class NextOccurrenceTests
         // already-clamped date, so a 31st subscription silently becomes a 28th forever
         // instead of recovering to 31 March. See the note in the accompanying report.
         var dates = PredictionEngine.ForecastOccurrences(
-            new DateTime(2026, 1, 31), BillingCycle.Monthly, new DateTime(2026, 1, 31), 3);
+            TestDates.UtcDate(2026, 1, 31), BillingCycle.Monthly, TestDates.UtcDate(2026, 1, 31), 3);
 
-        Assert.Equal(new DateTime(2026, 2, 28), dates[0]);
-        Assert.Equal(new DateTime(2026, 3, 28), dates[1]);   // not 31 March
-        Assert.Equal(new DateTime(2026, 4, 28), dates[2]);
+        Assert.Equal(TestDates.UtcDate(2026, 2, 28), dates[0]);
+        Assert.Equal(TestDates.UtcDate(2026, 3, 28), dates[1]);   // not 31 March
+        Assert.Equal(TestDates.UtcDate(2026, 4, 28), dates[2]);
     }
 
     [Fact]
     public void Handles_a_leap_year_february()
     {
         var next = PredictionEngine.NextOccurrence(
-            new DateTime(2028, 1, 31), BillingCycle.Monthly, new DateTime(2028, 1, 31));
+            TestDates.UtcDate(2028, 1, 31), BillingCycle.Monthly, TestDates.UtcDate(2028, 1, 31));
 
-        Assert.Equal(new DateTime(2028, 2, 29), next);
+        Assert.Equal(TestDates.UtcDate(2028, 2, 29), next);
     }
 }
 
@@ -76,7 +81,7 @@ public class ForecastOccurrencesTests
     public void Returns_exactly_the_requested_number_of_dates_in_ascending_order()
     {
         var dates = PredictionEngine.ForecastOccurrences(
-            new DateTime(2026, 1, 1), BillingCycle.Monthly, new DateTime(2026, 1, 1), 5);
+            TestDates.UtcDate(2026, 1, 1), BillingCycle.Monthly, TestDates.UtcDate(2026, 1, 1), 5);
 
         Assert.Equal(5, dates.Count);
         Assert.Equal(dates.OrderBy(d => d), dates);
@@ -86,7 +91,7 @@ public class ForecastOccurrencesTests
     public void Returns_an_empty_list_for_a_zero_count()
     {
         var dates = PredictionEngine.ForecastOccurrences(
-            new DateTime(2026, 1, 1), BillingCycle.Monthly, new DateTime(2026, 1, 1), 0);
+            TestDates.UtcDate(2026, 1, 1), BillingCycle.Monthly, TestDates.UtcDate(2026, 1, 1), 0);
 
         Assert.Empty(dates);
     }
@@ -98,19 +103,19 @@ public class OccurrencesInRangeTests
     public void Returns_every_occurrence_inside_the_window()
     {
         var dates = PredictionEngine.OccurrencesInRange(
-            new DateTime(2026, 1, 1), BillingCycle.Monthly,
-            new DateTime(2026, 1, 1), new DateTime(2026, 6, 30));
+            TestDates.UtcDate(2026, 1, 1), BillingCycle.Monthly,
+            TestDates.UtcDate(2026, 1, 1), TestDates.UtcDate(2026, 6, 30));
 
         Assert.Equal(5, dates.Count);   // Feb–Jun; January is excluded, see NextOccurrence
-        Assert.All(dates, d => Assert.InRange(d, new DateTime(2026, 1, 1), new DateTime(2026, 6, 30)));
+        Assert.All(dates, d => Assert.InRange(d, TestDates.UtcDate(2026, 1, 1), TestDates.UtcDate(2026, 6, 30)));
     }
 
     [Fact]
     public void Returns_nothing_when_the_window_closes_before_the_next_billing_date()
     {
         var dates = PredictionEngine.OccurrencesInRange(
-            new DateTime(2026, 1, 1), BillingCycle.Yearly,
-            new DateTime(2026, 2, 1), new DateTime(2026, 3, 1));
+            TestDates.UtcDate(2026, 1, 1), BillingCycle.Yearly,
+            TestDates.UtcDate(2026, 2, 1), TestDates.UtcDate(2026, 3, 1));
 
         Assert.Empty(dates);
     }
@@ -119,8 +124,8 @@ public class OccurrencesInRangeTests
     public void Weekly_billing_yields_one_occurrence_per_week()
     {
         var dates = PredictionEngine.OccurrencesInRange(
-            new DateTime(2026, 1, 1), BillingCycle.Weekly,
-            new DateTime(2026, 1, 1), new DateTime(2026, 1, 29));
+            TestDates.UtcDate(2026, 1, 1), BillingCycle.Weekly,
+            TestDates.UtcDate(2026, 1, 1), TestDates.UtcDate(2026, 1, 29));
 
         Assert.Equal(4, dates.Count);
     }
