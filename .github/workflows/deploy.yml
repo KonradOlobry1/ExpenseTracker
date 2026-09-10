@@ -1,0 +1,129 @@
+name: Deploy
+
+# Deliberately manual. Migrations apply on boot (RunMigrationsAtStartup defaults to true), so
+# a deploy is a schema change as well as a code change — not something to have happen while
+# nobody is looking. Run it from the Actions tab: "Deploy" → "Run workflow".
+#
+# Replaces publishing from Visual Studio, which repeatedly failed with locked files
+# (Microsoft.Data.SqlClient.dll) because MSDeploy was writing over assemblies the local site
+# still had open. A runner starts from an empty checkout, so that failure cannot happen.
+on:
+  workflow_dispatch:
+
+# Read-only: this workflow deploys with a publish profile, not with the workflow token.
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one midway — an interrupted MSDeploy can leave the
+# site half-written.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  AZURE_APP_NAME: ExpenseTracker
+  SITE_URL: https://expensetracker-e7bgaqgsbjhwarau.polandcentral-01.azurewebsites.net
+
+jobs:
+  # The button is manual, so nothing guarantees the chosen commit was ever green. Re-running
+  # the suites costs about a minute and removes the one way a manual deploy can go wrong that
+  # an automatic one cannot: shipping a commit whose tests never passed.
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Domain tests
+        run: dotnet test ExpenseTracker.Domain.Tests -c Release
+
+      - name: Sync client tests
+        run: dotnet test ExpenseTracker.Infrastructure.Tests -c Release
+
+      - name: API integration tests
+        run: dotnet test ExpenseTracker.Api.Tests -c Release
+
+  deploy:
+    name: Deploy to Azure
+    needs: verify
+    runs-on: ubuntu-latest
+
+    # Gives the run a Deployments entry and somewhere to hang a required reviewer later,
+    # without needing one now.
+    environment:
+      name: production
+      url: https://expensetracker-e7bgaqgsbjhwarau.polandcentral-01.azurewebsites.net
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Fails here with something readable rather than deep inside the deploy action with a
+      # 401 that looks like an Azure problem.
+      - name: Check the publish profile secret exists
+        env:
+          PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        run: |
+          if [ -z "$PROFILE" ]; then
+            echo "::error::AZURE_WEBAPP_PUBLISH_PROFILE is not set."
+            echo "Azure Portal → App Service → Overview → Download publish profile,"
+            echo "then GitHub → Settings → Secrets and variables → Actions → New repository secret."
+            exit 1
+          fi
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Framework-dependent, matching the App Service's own runtime — the same shape the
+      # Visual Studio profile published (SelfContained=false).
+      - name: Publish
+        run: dotnet publish ExpenseTracker.Api/ExpenseTracker.Api.csproj -c Release -o publish
+
+      - name: Deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_APP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: publish
+
+      # A deploy that returns success only means the files landed. These two prove the app
+      # actually came back up and reached its database — which, because migrations run at
+      # startup, is also what proves the migrations applied.
+      #
+      # The budget is generous on purpose. The database is on Azure SQL's serverless tier and
+      # resuming it regularly takes 30 to 60 seconds; the first request after a deploy pays
+      # both that and the app's own cold start. Anything tighter reports a healthy deploy as
+      # a failure.
+      - name: Confirm the site came back up
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$SITE_URL/health/live" || true)
+            if [ "$code" = "200" ]; then
+              echo "App is live."
+              break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "::error::No 200 from /health/live after two minutes (last status: $code)."
+              exit 1
+            fi
+            sleep 2
+          done
+
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$SITE_URL/health/ready" || true)
+            if [ "$code" = "200" ]; then
+              echo "Database reachable — migrations applied."
+              exit 0
+            fi
+            if [ "$i" = "60" ]; then
+              echo "::error::The app is up but /health/ready never returned 200 (last status: $code)."
+              echo "::error::Most likely a migration failed at startup. Check the App Service log stream."
+              exit 1
+            fi
+            sleep 2
+          done
