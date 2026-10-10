@@ -133,6 +133,11 @@ public class AuthService : IAuthService
 
     public bool SupportsMicrosoftSignIn => _browser?.IsAvailable == true;
 
+    // Linking attaches an identity to a signed-in *cookie* session, which a device does not
+    // have. A phone user links on the web; Microsoft sign-in then works here too.
+    public Task<MicrosoftLinkStatus> GetMicrosoftLinkStatusAsync()
+        => Task.FromResult(MicrosoftLinkStatus.Unavailable);
+
     /// <summary>
     /// Runs the sign-in in the system browser and trades the one-time code it ends with for
     /// the usual token pair.

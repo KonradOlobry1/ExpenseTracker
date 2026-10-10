@@ -1,5 +1,8 @@
 ﻿using System.Security.Claims;
+using ExpenseTracker.Api.Auth;
+using ExpenseTracker.Api.Data;
 using ExpenseTracker.Application.Interfaces;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.JSInterop;
 
 namespace ExpenseTracker.Api.Web;
@@ -16,7 +19,11 @@ namespace ExpenseTracker.Api.Web;
 /// The MAUI implementation of this interface does the equivalent over HTTP against the sync
 /// API and stores a JWT in SecureStorage.
 /// </remarks>
-public class WebAuthService(IHttpContextAccessor accessor, IJSRuntime js) : IAuthService
+public class WebAuthService(
+    IHttpContextAccessor accessor,
+    IJSRuntime js,
+    EntraOptions entra,
+    IDbContextFactory<ApiDbContext> dbFactory) : IAuthService
 {
     private ClaimsPrincipal? User => accessor.HttpContext?.User;
 
@@ -58,6 +65,22 @@ public class WebAuthService(IHttpContextAccessor accessor, IJSRuntime js) : IAut
     // circuit down (see LogoutAsync below), and nothing should call this when the flag is false.
     public Task<AuthResult> SignInWithMicrosoftAsync(CancellationToken ct = default)
         => Task.FromResult(AuthResult.Fail(AuthFailureReason.ServerError));
+
+    /// <summary>
+    /// Read through a short-lived context rather than UserManager: this service lives as long
+    /// as the circuit, and a context held that long keeps serving what it first loaded.
+    /// </summary>
+    public async Task<MicrosoftLinkStatus> GetMicrosoftLinkStatusAsync()
+    {
+        var userId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!entra.Enabled || userId is null) return MicrosoftLinkStatus.Unavailable;
+
+        await using var db = await dbFactory.CreateDbContextAsync();
+        return await db.UserLogins.AnyAsync(l =>
+                   l.UserId == userId && l.LoginProvider == ExternalAuthEndpoints.Scheme)
+            ? MicrosoftLinkStatus.Linked
+            : MicrosoftLinkStatus.NotLinked;
+    }
 
     public Task<AuthResult> RegisterAsync(string email, string password, CancellationToken ct = default)
         => throw new NotSupportedException("Register via /account/login — a cookie cannot be set from a Blazor circuit.");

@@ -21,6 +21,19 @@ public enum ExternalLoginFailure
     Failed,
 }
 
+public enum ExternalLinkResult
+{
+    Linked,
+
+    /// <summary>This Microsoft identity was already attached to this same account.</summary>
+    AlreadyLinked,
+
+    /// <summary>It belongs to a different account, which is left untouched.</summary>
+    TakenByOther,
+
+    Failed,
+}
+
 public readonly record struct ExternalLoginResult(AppUser? User, ExternalLoginFailure? Failure)
 {
     public bool Succeeded => User is not null;
@@ -78,6 +91,27 @@ public sealed class ExternalLogins(UserManager<AppUser> users, ApiDbContext db)
         await DefaultCategories.EnsureForUserAsync(db, user.Id, ct);
 
         return ExternalLoginResult.Ok(user);
+    }
+
+    /// <summary>
+    /// Attaches a Microsoft identity to an account that is already signed in.
+    /// </summary>
+    /// <remarks>
+    /// This is the safe way to join a password account to a Microsoft one: the caller has just
+    /// proven control of the account by being signed in to it, so nothing depends on the
+    /// identity's email claim - which is exactly why <see cref="ResolveAsync"/> refuses to do
+    /// the same thing by matching addresses. The identity is never moved from another account:
+    /// that would let one person take over the other's data.
+    /// </remarks>
+    public async Task<ExternalLinkResult> LinkAsync(AppUser user, ExternalLoginInfo info)
+    {
+        var owner = await users.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
+        if (owner is not null)
+            return owner.Id == user.Id ? ExternalLinkResult.AlreadyLinked : ExternalLinkResult.TakenByOther;
+
+        return (await users.AddLoginAsync(user, info)).Succeeded
+            ? ExternalLinkResult.Linked
+            : ExternalLinkResult.Failed;
     }
 
     /// <summary>

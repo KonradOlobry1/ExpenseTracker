@@ -207,8 +207,10 @@ How it behaves:
 - **Accounts:** a Microsoft identity is matched by its own subject id. A new one creates a new
   account with no password. If its email already belongs to a password account, sign-in is
   refused rather than merged - Entra's email claim is not proof of ownership, so merging would
-  allow account takeover. Linking from inside a signed-in session is the safe way to add that
-  and does not exist yet.
+  allow account takeover. To use Microsoft with an existing account, sign in with the password
+  on the web and press **Link Microsoft account** in Settings; after that either method opens
+  the same account. Linking is web-only (the app has no cookie session to attach to), but a
+  linked account can then sign in with Microsoft on the app too.
 
 ## Health
 

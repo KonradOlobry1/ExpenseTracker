@@ -158,6 +158,75 @@ public class ExternalSignInTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(ExternalLoginFailure.Locked, again.Failure);
     }
 
+    private async Task<ExternalLinkResult> LinkAsync(string userId, ExternalLoginInfo info)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
+        var user = await users.FindByIdAsync(userId);
+        return await scope.ServiceProvider.GetRequiredService<ExternalLogins>().LinkAsync(user!, info);
+    }
+
+    [Fact]
+    public async Task Linking_attaches_a_microsoft_identity_to_the_password_account_it_was_started_from()
+    {
+        // The case that sign-in refuses: same email, existing password account. Linking from
+        // inside the signed-in session is what makes it safe, and afterwards Microsoft
+        // sign-in must land on that very account rather than a new one.
+        var email = $"both-{Guid.NewGuid():N}@test.local";
+        await factory.RegisterAsync(email);
+        var userId = await UserIdOfAsync(email);
+        var identity = MicrosoftIdentity(Guid.NewGuid().ToString(), email);
+
+        Assert.Equal(ExternalLinkResult.Linked, await LinkAsync(userId, identity));
+
+        var signedIn = await ResolveAsync(identity);
+        Assert.True(signedIn.Succeeded);
+        Assert.Equal(userId, signedIn.User!.Id);
+    }
+
+    [Fact]
+    public async Task Linking_the_same_identity_twice_is_harmless()
+    {
+        var email = $"twice-{Guid.NewGuid():N}@test.local";
+        await factory.RegisterAsync(email);
+        var userId = await UserIdOfAsync(email);
+        var identity = MicrosoftIdentity(Guid.NewGuid().ToString(), email);
+
+        await LinkAsync(userId, identity);
+
+        Assert.Equal(ExternalLinkResult.AlreadyLinked, await LinkAsync(userId, identity));
+    }
+
+    [Fact]
+    public async Task An_identity_already_linked_to_another_account_is_never_moved()
+    {
+        // Otherwise anyone could pull a Microsoft identity out from under its owner, and
+        // with it that account's sign-in.
+        var identity = MicrosoftIdentity(Guid.NewGuid().ToString(), $"owner-{Guid.NewGuid():N}@test.local");
+        var owner = await ResolveAsync(identity);
+
+        var otherEmail = $"other-{Guid.NewGuid():N}@test.local";
+        await factory.RegisterAsync(otherEmail);
+
+        Assert.Equal(ExternalLinkResult.TakenByOther, await LinkAsync(await UserIdOfAsync(otherEmail), identity));
+        Assert.Equal(owner.User!.Id, (await ResolveAsync(identity)).User!.Id);
+    }
+
+    [Fact]
+    public async Task The_link_endpoints_need_a_signed_in_session()
+    {
+        // Anonymous callers are sent to sign in rather than being able to attach anything.
+        var client = factory.CreateClient(new() { AllowAutoRedirect = false });
+
+        foreach (var path in new[] { ExternalAuthEndpoints.LinkPath, ExternalAuthEndpoints.LinkCallbackPath })
+        {
+            var response = await client.GetAsync(path);
+
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Contains("/account/login", response.Headers.Location!.ToString());
+        }
+    }
+
     [Fact]
     public async Task The_device_code_and_its_verifier_exchange_for_a_working_session()
     {
