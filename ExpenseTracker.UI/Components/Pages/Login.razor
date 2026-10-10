@@ -40,6 +40,20 @@
                            OnClick="DoSignIn">
                     @(_working ? "..." : L["Login_SignIn"])
                 </MudButton>
+                @* Only where this platform can run the browser round trip - an inert button is
+                   indistinguishable from a broken one. *@
+                @if (AuthService.SupportsMicrosoftSignIn)
+                {
+                    <MudDivider />
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Primary"
+                               FullWidth="true"
+                               Disabled="_working"
+                               StartIcon="@Icons.Material.Filled.Login"
+                               OnClick="DoMicrosoftSignIn">
+                        @L["Login_Microsoft"]
+                    </MudButton>
+                }
             </MudStack>
         </MudTabPanel>
 
@@ -146,6 +160,24 @@
         }
     }
 
+    async Task DoMicrosoftSignIn()
+    {
+        _signInError = "";
+        _working = true;
+        try
+        {
+            var result = await AuthService.SignInWithMicrosoftAsync();
+            if (result.Succeeded)
+                Nav.NavigateTo("/dashboard");
+            else if (result.Failure != AuthFailureReason.Cancelled)
+                _signInError = Message(result.Failure);
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
+
     async Task DoRegister()
     {
         _registerError = "";
@@ -190,6 +222,7 @@
     {
         AuthFailureReason.InvalidCredentials => L["Login_InvalidCredentials"],
         AuthFailureReason.AccountLocked => L["Login_AccountLocked"],
+        AuthFailureReason.EmailInUse => L["Login_EmailInUse"],
         AuthFailureReason.NetworkError => L["Login_NetworkError"],
         _ => L["Login_ServerError"],
     };

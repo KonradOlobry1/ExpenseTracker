@@ -9,6 +9,19 @@ public interface IAuthService
     Task LogoutAsync();
 
     /// <summary>
+    /// Whether this client can offer "Sign in with Microsoft". A capability, not a setting:
+    /// the web signs in through its own page, and some device platforms have no way to run
+    /// the browser round trip.
+    /// </summary>
+    bool SupportsMicrosoftSignIn { get; }
+
+    /// <summary>
+    /// Signs in (creating the account on first use) through Microsoft Entra ID, in the system
+    /// browser. A user who backs out gets <see cref="AuthFailureReason.Cancelled"/>.
+    /// </summary>
+    Task<AuthResult> SignInWithMicrosoftAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Whether the caller can act as this account right now — a bearer token that has not
     /// expired, or one silently renewed via the refresh token if it had. Sync requires this.
     /// </summary>

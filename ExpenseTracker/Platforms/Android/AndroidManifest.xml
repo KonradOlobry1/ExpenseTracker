@@ -11,6 +11,13 @@
             </intent-filter>
         </service>
     </application>
+    <!-- Android 11+ hides other apps from this one unless asked for; WebAuthenticator needs to
+         see a Custom Tabs browser to run the Microsoft sign-in. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 </manifest>

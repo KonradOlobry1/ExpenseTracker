@@ -34,6 +34,9 @@ services:
         condition: service_healthy
     environment:
       Jwt__Key: ${JWT_KEY}
+      # Optional. Empty leaves "Sign in with Microsoft" off.
+      Entra__ClientId: ${ENTRA_CLIENT_ID:-}
+      Entra__ClientSecret: ${ENTRA_CLIENT_SECRET:-}
       ConnectionStrings__DefaultConnection: "Server=db,1433;Database=expensetracker;User ID=sa;Password=${SA_PASSWORD};Encrypt=True;TrustServerCertificate=True;"
       RunMigrationsAtStartup: "true"
       ASPNETCORE_ENVIRONMENT: Development

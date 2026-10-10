@@ -99,6 +99,10 @@ public class StubApi : HttpMessageHandler
     public HttpStatusCode LoginStatus { get; set; } = HttpStatusCode.OK;
     public HttpStatusCode RegisterStatus { get; set; } = HttpStatusCode.OK;
     public HttpStatusCode RefreshStatus { get; set; } = HttpStatusCode.OK;
+    public HttpStatusCode ExchangeStatus { get; set; } = HttpStatusCode.OK;
+
+    /// <summary>Every code/verifier pair sent to the Microsoft sign-in exchange, in order.</summary>
+    public List<ExternalExchangeRequest> Exchanges { get; } = [];
 
     /// <summary>Every request throws instead of getting a response — a DNS failure, a
     /// connection refused, anything transport-level rather than an HTTP status.</summary>
@@ -135,6 +139,12 @@ public class StubApi : HttpMessageHandler
             throw new HttpRequestException("Stubbed network failure.");
 
         var url = request.RequestUri!.ToString();
+
+        if (url.Contains(ExternalSignIn.ExchangePath))
+        {
+            Exchanges.Add((await request.Content!.ReadFromJsonAsync<ExternalExchangeRequest>(Json, cancellationToken))!);
+            return AuthResponseMessage(ExchangeStatus);
+        }
 
         if (url.Contains("/api/auth/login"))
             return AuthResponseMessage(LoginStatus);

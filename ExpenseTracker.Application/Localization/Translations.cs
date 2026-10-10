@@ -148,6 +148,9 @@ public static class Translations
             ["Login_AccountLocked"]       = "Too many failed attempts. Try again in a few minutes.",
             ["Login_NetworkError"]        = "Could not reach the server. Check your connection and try again.",
             ["Login_ServerError"]         = "Something went wrong on our end. Try again shortly.",
+            ["Login_Microsoft"]           = "Sign in with Microsoft",
+            ["Login_Or"]                  = "or",
+            ["Login_EmailInUse"]          = "An account with that email already exists. Sign in with its password instead.",
 
             // Account & Sync settings
             ["Settings_Account"]          = "Account & Sync",
@@ -354,6 +357,9 @@ public static class Translations
             ["Login_AccountLocked"]       = "Zbyt wiele nieudanych prób. Spróbuj ponownie za kilka minut.",
             ["Login_NetworkError"]        = "Nie można połączyć się z serwerem. Sprawdź połączenie i spróbuj ponownie.",
             ["Login_ServerError"]         = "Coś poszło nie tak po naszej stronie. Spróbuj ponownie wkrótce.",
+            ["Login_Microsoft"]           = "Zaloguj się przez Microsoft",
+            ["Login_Or"]                  = "lub",
+            ["Login_EmailInUse"]          = "Konto z tym adresem e-mail już istnieje. Zaloguj się jego hasłem.",
 
             // Account & Sync settings
             ["Settings_Account"]          = "Konto i synchronizacja",

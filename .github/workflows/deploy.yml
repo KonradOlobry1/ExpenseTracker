@@ -4,15 +4,21 @@ name: Deploy
 # a deploy is a schema change as well as a code change — not something to have happen while
 # nobody is looking. Run it from the Actions tab: "Deploy" → "Run workflow".
 #
+# Authenticates to Azure with OIDC (a federated credential on an Entra app registration), not
+# a downloaded publish profile.
+#
 # Replaces publishing from Visual Studio, which repeatedly failed with locked files
 # (Microsoft.Data.SqlClient.dll) because MSDeploy was writing over assemblies the local site
 # still had open. A runner starts from an empty checkout, so that failure cannot happen.
 on:
   workflow_dispatch:
 
-# Read-only: this workflow deploys with a publish profile, not with the workflow token.
+# contents is read-only. id-token lets the run ask GitHub for a short-lived OIDC token, which
+# Azure exchanges for access through a federated credential - so no Azure secret is stored
+# in this repository at all, only three identifiers.
 permissions:
   contents: read
+  id-token: write
 
 # One deploy at a time, and never cancel one midway — an interrupted MSDeploy can leave the
 # site half-written.
@@ -62,16 +68,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Fails here with something readable rather than deep inside the deploy action with a
-      # 401 that looks like an Azure problem.
-      - name: Check the publish profile secret exists
+      # Fails here with something readable rather than deep inside the login action.
+      - name: Check the Azure identifiers exist
         env:
-          PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
-          if [ -z "$PROFILE" ]; then
-            echo "::error::AZURE_WEBAPP_PUBLISH_PROFILE is not set."
-            echo "Azure Portal → App Service → Overview → Download publish profile,"
-            echo "then GitHub → Settings → Secrets and variables → Actions → New repository secret."
+          if [ -z "$CLIENT_ID" ] || [ -z "$TENANT_ID" ] || [ -z "$SUBSCRIPTION_ID" ]; then
+            echo "::error::AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID must all be set."
+            echo "See README, 'Azure production', step 5. These are identifiers, not credentials."
             exit 1
           fi
 
@@ -84,11 +90,17 @@ jobs:
       - name: Publish
         run: dotnet publish ExpenseTracker.Api/ExpenseTracker.Api.csproj -c Release -o publish
 
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Deploy
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_APP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: publish
 
       # A deploy that returns success only means the files landed. These two prove the app

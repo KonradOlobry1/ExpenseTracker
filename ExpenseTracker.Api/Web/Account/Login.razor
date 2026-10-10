@@ -11,6 +11,7 @@
 @inject ApiDbContext Db
 @inject NavigationManager Nav
 @inject IHttpContextAccessor HttpContextAccessor
+@inject ExpenseTracker.Api.Auth.EntraOptions Entra
 
 @* Statically rendered on purpose: signing in writes a Set-Cookie response header, which an
    interactive circuit cannot do — so this is a plain form post, not an @onclick.
@@ -49,6 +50,15 @@
             <button type="submit">Continue</button>
         </EditForm>
 
+        @if (Entra.Enabled)
+        {
+            @* A plain link, not a form post: the challenge is a redirect to Microsoft, and
+               nothing here is submitted. Leaving the password form alone also means the SSR
+               binding rules in the code block below are untouched. *@
+            <p class="login-or">or</p>
+            <a class="login-provider" href="@MicrosoftHref">Sign in with Microsoft</a>
+        }
+
         <p class="login-note"><a href="/account/forgot-password">Forgot your password?</a></p>
     </div>
 </div>
@@ -76,7 +86,28 @@
 #pragma warning restore BL0008
     [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
 
+    // Set by the Microsoft callback when it could not sign the user in.
+    [SupplyParameterFromQuery(Name = "external")] private string? ExternalError { get; set; }
+
     private string? _error;
+
+    private string MicrosoftHref => string.IsNullOrWhiteSpace(ReturnUrl)
+        ? "/account/external/microsoft"
+        : $"/account/external/microsoft?returnUrl={Uri.EscapeDataString(ReturnUrl)}";
+
+    protected override void OnInitialized()
+    {
+        // Not shown after a failed password post: the query string is only there on the
+        // redirect back from the Microsoft callback.
+        _error ??= ExternalError switch
+        {
+            null => null,
+            "email_in_use" => "An account with that email already exists. Sign in with its password instead.",
+            "locked" => "Too many failed attempts. Try again in a few minutes.",
+            "no_email" => "Microsoft did not share an email address for that account.",
+            _ => "Could not sign in with Microsoft. Try again.",
+        };
+    }
 
     private bool IsDarkMode =>
         HttpContextAccessor.HttpContext?.Request.Cookies[PrefKeys.Theme] == "dark";
@@ -130,33 +161,10 @@
         Nav.NavigateTo(target, forceLoad: true);
     }
 
-    /// <summary>
-    /// Copies the account's display preferences into this browser's cookies.
-    /// </summary>
-    /// <remarks>
-    /// The UI services read these cookies from the incoming request, which is the only way a
-    /// synchronous property can have the right value before the first render. Sign-in is the
-    /// one place in the web app that is a real HTTP response rather than a circuit, so it is
-    /// the one place that can set them — which is also why it must happen here rather than in
-    /// a layout. Without it, a browser that has never seen this account starts on the defaults
-    /// and the user's currency and language appear to have been forgotten.
-    /// </remarks>
     private void WriteSettingsCookies(AppUser user)
     {
-        var cookies = HttpContextAccessor.HttpContext?.Response.Cookies;
-        if (cookies is null) return;
-
-        var options = new CookieOptions
-        {
-            Expires = DateTimeOffset.UtcNow.AddYears(1),
-            IsEssential = true,   // a display preference the user set, not tracking
-            SameSite = SameSiteMode.Lax,
-            Path = "/"
-        };
-
-        cookies.Append(PrefKeys.Currency, user.Currency, options);
-        cookies.Append(PrefKeys.Language, user.Language, options);
-        cookies.Append(PrefKeys.Theme, user.IsDarkMode ? "dark" : "light", options);
+        var response = HttpContextAccessor.HttpContext?.Response;
+        if (response is not null) SettingsCookies.Write(response, user);
     }
 
     private sealed class InputModel

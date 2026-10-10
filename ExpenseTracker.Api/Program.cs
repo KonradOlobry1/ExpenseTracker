@@ -1,27 +1,34 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
+using ExpenseTracker.Api.Auth;
 using ExpenseTracker.Api.Data;
 using ExpenseTracker.Api.Data.Repositories;
+using ExpenseTracker.Api.Models;
 using ExpenseTracker.Api.Notifications;
 using ExpenseTracker.Api.Web;
 using ExpenseTracker.Application.Interfaces;
 using ExpenseTracker.Application.Services;
 using ExpenseTracker.Domain.Interfaces.Repositories;
 using ExpenseTracker.Presentation.Services;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
-using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.RateLimiting;
-using MudBlazor.Services;
-using ExpenseTracker.Api.Models;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Telemetry to Application Insights. Only when a connection string is supplied (App Service
+// setting APPLICATIONINSIGHTS_CONNECTION_STRING), so local runs, Compose and the tests send
+// nothing anywhere.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+    builder.Services.AddOpenTelemetry().UseAzureMonitor();
 
 // Database
 // A factory for the Blazor repositories (concurrent renders need a context each) plus a
@@ -75,7 +82,7 @@ if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
 
 // The API is called by the MAUI app with a bearer token; the web UI is a browser with a
 // cookie. A policy scheme picks per request rather than forcing one on both.
-builder.Services.AddAuthentication(options =>
+var authentication = builder.Services.AddAuthentication(options =>
 {
     // All three, explicitly: AddIdentity already set DefaultAuthenticateScheme to the
     // cookie, and leaving that in place makes every bearer-token API call a 401.
@@ -103,6 +110,36 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
 });
+
+// Sign in with Microsoft (Entra ID). Registered only when an app registration is configured,
+// so everything else behaves exactly as before without one. Entra is a way to *prove* who
+// someone is; the session afterwards is still ours - the Identity cookie on the web, our own
+// JWT and refresh token on a device - so nothing downstream knows or cares which route was used.
+var entra = builder.Configuration.GetSection(EntraOptions.Section).Get<EntraOptions>() ?? new EntraOptions();
+builder.Services.AddSingleton(entra);
+builder.Services.AddScoped<ExternalLogins>();
+builder.Services.AddSingleton<DeviceSignInCodes>();
+
+if (entra.Enabled)
+{
+    authentication.AddOpenIdConnect(ExternalAuthEndpoints.Scheme, "Microsoft", options =>
+    {
+        // Identity's external cookie holds the verified identity just long enough for the
+        // callback to decide what account it is.
+        options.SignInScheme = IdentityConstants.ExternalScheme;
+        options.Authority = entra.Authority;
+        options.ClientId = entra.ClientId;
+        options.ClientSecret = entra.ClientSecret;
+        options.CallbackPath = "/signin-microsoft";
+        options.ResponseType = "code";   // authorization code + PKCE; nothing in the fragment
+        options.Scope.Add("email");
+        options.SaveTokens = false;      // we want an identity, not Graph access
+        options.TokenValidationParameters.NameClaimType = "name";
+
+        if (entra.IsMultiTenant)
+            options.TokenValidationParameters.IssuerValidator = EntraIssuerValidator.Validate;
+    });
+}
 
 builder.Services.AddAuthorization();
 
@@ -294,6 +331,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c
    .AllowAnonymous();
 
 app.MapControllers();
+app.MapExternalAuth();
 // The shared pages live in ExpenseTracker.UI. Endpoint-based routing needs them declared
 // here as well as on the Router — Router.AdditionalAssemblies alone leaves them 404.
 app.MapRazorComponents<App>()
