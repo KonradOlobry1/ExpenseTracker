@@ -35,6 +35,27 @@
                                           : L["Settings_NoSyncNeeded"])
             </MudText>
 
+            @* Only where this client can do it (the web, with Microsoft sign-in configured). A
+               full page load, not a handler: attaching an identity is a redirect to Microsoft and
+               back, which has to be a real request - a circuit cannot follow it, hence forceLoad. *@
+            @if (_microsoftLink == MicrosoftLinkStatus.NotLinked)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mt-3"
+                           StartIcon="@Icons.Material.Filled.Link"
+                           OnClick='() => Nav.NavigateTo("/account/external/link", forceLoad: true)'>
+                    @L["Settings_LinkMicrosoft"]
+                </MudButton>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1 d-block">
+                    @L["Settings_LinkMicrosoftInfo"]
+                </MudText>
+            }
+            else if (_microsoftLink == MicrosoftLinkStatus.Linked)
+            {
+                <MudChip T="string" Color="Color.Success" Icon="@Icons.Material.Filled.Check" Class="mt-3">
+                    @L["Settings_MicrosoftLinked"]
+                </MudChip>
+            }
+
             <MudStack Row="true" Class="mt-3" Spacing="2">
                 @if (SyncService.IsSupported)
                 {
@@ -145,6 +166,10 @@
 @code {
     bool _isLoggedIn;
     string _userEmail = "";
+    MicrosoftLinkStatus _microsoftLink;
+
+    // Set by the link callback when it sends the user back here.
+    [SupplyParameterFromQuery(Name = "link")] public string? LinkOutcome { get; set; }
     bool _syncing;
     string _lastSyncDisplay = "";
 
@@ -172,6 +197,10 @@
         L.OnChanged += Refresh;
         SyncService.SyncStateChanged += OnSyncStateChanged;
         await LoadAuthState();
+
+        if (LinkOutcome == "taken") Snackbar.Add(L["Settings_LinkTaken"], Severity.Warning);
+        else if (LinkOutcome == "failed") Snackbar.Add(L["Settings_LinkFailed"], Severity.Warning);
+        else if (LinkOutcome == "linked") Snackbar.Add(L["Settings_MicrosoftLinked"], Severity.Success);
     }
 
     async Task LoadAuthState()
@@ -181,6 +210,7 @@
         {
             var user = await AuthService.GetCurrentUserAsync();
             _userEmail = user?.Email ?? "";
+            _microsoftLink = await AuthService.GetMicrosoftLinkStatusAsync();
         }
         _syncing = SyncService.IsSyncing;
         var last = SyncService.LastSyncTime;

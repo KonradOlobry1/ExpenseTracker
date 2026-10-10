@@ -163,6 +163,11 @@ public static class Translations
             ["Settings_NeverSynced"]      = "Never synced",
             ["Settings_NoSyncNeeded"]     = "Your changes are saved directly to the cloud. There is nothing to sync here.",
             ["Settings_Syncing"]          = "Syncing...",
+            ["Settings_LinkMicrosoft"]    = "Link Microsoft account",
+            ["Settings_MicrosoftLinked"]  = "Microsoft account linked",
+            ["Settings_LinkMicrosoftInfo"] = "Lets you sign in to this same account with Microsoft as well as your password.",
+            ["Settings_LinkTaken"]        = "That Microsoft account is already linked to a different account.",
+            ["Settings_LinkFailed"]       = "Could not link the Microsoft account. Try again.",
 
             // Payment detection
             ["Settings_PaymentDetect"]    = "Payment Detection",
@@ -372,6 +377,11 @@ public static class Translations
             ["Settings_NeverSynced"]      = "Nigdy nie synchronizowano",
             ["Settings_NoSyncNeeded"]     = "Zmiany są zapisywane bezpośrednio w chmurze. Nie ma tu nic do zsynchronizowania.",
             ["Settings_Syncing"]          = "Synchronizuję...",
+            ["Settings_LinkMicrosoft"]    = "Połącz konto Microsoft",
+            ["Settings_MicrosoftLinked"]  = "Konto Microsoft połączone",
+            ["Settings_LinkMicrosoftInfo"] = "Pozwala logować się na to samo konto także przez Microsoft, obok hasła.",
+            ["Settings_LinkTaken"]        = "To konto Microsoft jest już połączone z innym kontem.",
+            ["Settings_LinkFailed"]       = "Nie udało się połączyć konta Microsoft. Spróbuj ponownie.",
 
             // Payment detection
             ["Settings_PaymentDetect"]    = "Wykrywanie płatności",

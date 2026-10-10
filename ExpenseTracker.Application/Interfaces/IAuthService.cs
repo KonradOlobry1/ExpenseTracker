@@ -2,6 +2,15 @@
 
 public record UserInfo(string Email, string UserId);
 
+/// <summary>Whether the signed-in account can, and already does, have a Microsoft identity attached.</summary>
+public enum MicrosoftLinkStatus
+{
+    /// <summary>Not offered here: not configured, or this client cannot do it.</summary>
+    Unavailable,
+    NotLinked,
+    Linked,
+}
+
 public interface IAuthService
 {
     Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default);
@@ -14,6 +23,15 @@ public interface IAuthService
     /// the browser round trip.
     /// </summary>
     bool SupportsMicrosoftSignIn { get; }
+
+    /// <summary>
+    /// Whether Settings should offer "Link Microsoft account", and whether it is already done.
+    /// Linking is how an existing password account gets Microsoft sign-in: sign-in itself never
+    /// merges accounts by email. Only the web can do it - the app has no cookie session to
+    /// attach an identity to - so a device always answers
+    /// <see cref="MicrosoftLinkStatus.Unavailable"/>.
+    /// </summary>
+    Task<MicrosoftLinkStatus> GetMicrosoftLinkStatusAsync();
 
     /// <summary>
     /// Signs in (creating the account on first use) through Microsoft Entra ID, in the system

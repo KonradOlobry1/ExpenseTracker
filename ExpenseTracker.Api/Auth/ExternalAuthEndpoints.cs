@@ -24,6 +24,8 @@ public static class ExternalAuthEndpoints
 {
     public const string Scheme = "Microsoft";
     public const string CallbackPath = "/account/external/callback";
+    public const string LinkPath = "/account/external/link";
+    public const string LinkCallbackPath = "/account/external/link/callback";
 
     private const string DeviceChallengeItem = "device_challenge";
 
@@ -89,6 +91,55 @@ public static class ExternalAuthEndpoints
                 return Results.Redirect(LocalOrRoot(returnUrl));
             })
             .AllowAnonymous()
+            .RequireRateLimiting("auth");
+
+        MapLink(app);
+    }
+
+    /// <summary>
+    /// Settings -> "Link Microsoft account". Unlike sign-in these require an existing session:
+    /// the point is to attach an identity to the account the user is already in.
+    /// </summary>
+    private static void MapLink(WebApplication app)
+    {
+        app.MapGet(LinkPath, async (
+                HttpContext http, EntraOptions entra,
+                SignInManager<AppUser> signIn, UserManager<AppUser> users) =>
+            {
+                if (!entra.Enabled) return Results.NotFound();
+                if (await users.GetUserAsync(http.User) is not { } user) return Results.Unauthorized();
+
+                // The user id rides along as the anti-forgery value. The callback only accepts
+                // an identity if it comes back carrying the id of whoever is signed in then, so
+                // a flow somebody else started cannot be completed inside this session.
+                var properties = signIn.ConfigureExternalAuthenticationProperties(
+                    Scheme, LinkCallbackPath, user.Id);
+                return Results.Challenge(properties, [Scheme]);
+            })
+            .RequireAuthorization()
+            .RequireRateLimiting("auth");
+
+        app.MapGet(LinkCallbackPath, async (
+                HttpContext http, EntraOptions entra, SignInManager<AppUser> signIn,
+                UserManager<AppUser> users, ExternalLogins logins) =>
+            {
+                if (!entra.Enabled) return Results.NotFound();
+                if (await users.GetUserAsync(http.User) is not { } user) return Results.Unauthorized();
+
+                var info = await signIn.GetExternalLoginInfoAsync(user.Id);
+                await http.SignOutAsync(IdentityConstants.ExternalScheme);
+
+                if (info is null)
+                    return Results.Redirect("/settings?link=failed");
+
+                return Results.Redirect(await logins.LinkAsync(user, info) switch
+                {
+                    ExternalLinkResult.Linked or ExternalLinkResult.AlreadyLinked => "/settings?link=linked",
+                    ExternalLinkResult.TakenByOther => "/settings?link=taken",
+                    _ => "/settings?link=failed",
+                });
+            })
+            .RequireAuthorization()
             .RequireRateLimiting("auth");
     }
 
