@@ -2,8 +2,10 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using ExpenseTracker.Api.Auth;
 using ExpenseTracker.Api.Data;
 using ExpenseTracker.Api.DTOs;
+using ExpenseTracker.Contracts;
 using ExpenseTracker.Api.Models;
 using ExpenseTracker.Api.Notifications;
 using Microsoft.AspNetCore.Identity;
@@ -25,7 +27,8 @@ public class AuthController(
     SignInManager<AppUser> signInManager,
     ApiDbContext db,
     IConfiguration configuration,
-    IPasswordResetSender resetSender) : ControllerBase
+    IPasswordResetSender resetSender,
+    DeviceSignInCodes deviceCodes) : ControllerBase
 {
     // Sliding via rotation: every refresh issues a fresh 30-day token, so a device in active
     // use never has to fall back to a password, while one that stops syncing eventually needs
@@ -74,6 +77,29 @@ public class AuthController(
 
         if (!signIn.Succeeded)
             return Unauthorized("Invalid email or password.");
+
+        return Ok(await IssueTokensAsync(user, ct));
+    }
+
+    /// <summary>
+    /// Trades the one-time code a Microsoft sign-in delivered to the app for the same token
+    /// pair a password sign-in returns.
+    /// </summary>
+    /// <remarks>
+    /// The code alone is not enough - the caller must also hold the PKCE verifier, so an app
+    /// that merely intercepted the redirect cannot redeem it. Every failure looks the same.
+    /// </remarks>
+    [HttpPost("external/exchange")]
+    public async Task<ActionResult<AuthResponse>> ExchangeExternal(
+        [FromBody] ExternalExchangeRequest request, CancellationToken ct)
+    {
+        var userId = deviceCodes.Redeem(request.Code ?? string.Empty, request.Verifier ?? string.Empty);
+        var user = userId is null ? null : await userManager.FindByIdAsync(userId);
+
+        // Locked-out accounts are refused here as well as at the callback: the code outlives
+        // that check by up to its lifetime.
+        if (user is null || await userManager.IsLockedOutAsync(user))
+            return Unauthorized("Invalid or expired sign-in code.");
 
         return Ok(await IssueTokensAsync(user, ct));
     }

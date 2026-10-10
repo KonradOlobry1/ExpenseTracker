@@ -1,9 +1,11 @@
 ﻿using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ExpenseTracker.Application.Interfaces;
+using ExpenseTracker.Contracts;
 using ExpenseTracker.Infrastructure.Persistence;
 using ExpenseTracker.Presentation.Services;
 using Microsoft.EntityFrameworkCore;
@@ -23,19 +25,24 @@ public class AuthService : IAuthService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IPreferenceStore _prefs;
     private readonly ISecureStore _secrets;
+    private readonly IExternalAuthBrowser? _browser;
 
+    // The browser is optional: a head with no way to run the Microsoft round trip simply
+    // registers none, and SupportsMicrosoftSignIn reports false.
     public AuthService(
         HttpClient http,
         ILogger<AuthService> logger,
         IDbContextFactory<AppDbContext> dbFactory,
         IPreferenceStore prefs,
-        ISecureStore secrets)
+        ISecureStore secrets,
+        IExternalAuthBrowser? browser = null)
     {
         _http = http;
         _logger = logger;
         _dbFactory = dbFactory;
         _prefs = prefs;
         _secrets = secrets;
+        _browser = browser;
     }
 
     // Fixed, not a preference. It used to be user-editable and read from Preferences with
@@ -120,6 +127,78 @@ public class AuthService : IAuthService
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Registration response could not be parsed.");
+            return AuthResult.Fail(AuthFailureReason.ServerError);
+        }
+    }
+
+    public bool SupportsMicrosoftSignIn => _browser?.IsAvailable == true;
+
+    /// <summary>
+    /// Runs the sign-in in the system browser and trades the one-time code it ends with for
+    /// the usual token pair.
+    /// </summary>
+    /// <remarks>
+    /// The browser is sent back through a custom URL scheme that another installed app could
+    /// also claim, so the code it carries is bound to a PKCE verifier that never leaves this
+    /// method until the exchange: only the hash goes out with the start request.
+    /// </remarks>
+    public async Task<AuthResult> SignInWithMicrosoftAsync(CancellationToken ct = default)
+    {
+        if (_browser is not { IsAvailable: true })
+            return AuthResult.Fail(AuthFailureReason.ServerError);
+
+        try
+        {
+            var verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+            var challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+
+            var baseUrl = ApiBaseUrl.TrimEnd('/');
+            var returned = await _browser.AuthenticateAsync(
+                new Uri($"{baseUrl}{ExternalSignIn.StartPath}?challenge={challenge}"),
+                new Uri(ExternalSignIn.CallbackUrl), ct);
+
+            // Backing out of the browser is a choice, not a failure.
+            if (returned is null)
+                return AuthResult.Fail(AuthFailureReason.Cancelled);
+
+            if (returned.TryGetValue(ExternalSignIn.ErrorParameter, out var error))
+            {
+                _logger.LogWarning("Microsoft sign-in was rejected by the server: {Error}.", error);
+                return AuthResult.Fail(error == ExternalSignIn.EmailInUseError
+                    ? AuthFailureReason.EmailInUse
+                    : AuthFailureReason.ServerError);
+            }
+
+            if (!returned.TryGetValue(ExternalSignIn.CodeParameter, out var code))
+                return AuthResult.Fail(AuthFailureReason.ServerError);
+
+            var response = await _http.PostAsJsonAsync(
+                $"{baseUrl}{ExternalSignIn.ExchangePath}", new ExternalExchangeRequest(code, verifier), ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Sign-in code exchange rejected by server: {StatusCode}.", response.StatusCode);
+                return AuthResult.Fail(ReasonForStatus(response.StatusCode));
+            }
+
+            var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(cancellationToken: ct);
+            if (auth is null)
+            {
+                _logger.LogError("Sign-in code exchange succeeded but the server returned an empty body.");
+                return AuthResult.Fail(AuthFailureReason.ServerError);
+            }
+
+            await StoreTokensAsync(auth);
+            return AuthResult.Success();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutRejectedException)
+        {
+            _logger.LogError(ex, "Microsoft sign-in failed while contacting the API.");
+            return AuthResult.Fail(AuthFailureReason.NetworkError);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Sign-in code exchange response could not be parsed.");
             return AuthResult.Fail(AuthFailureReason.ServerError);
         }
     }
@@ -327,6 +406,11 @@ public class AuthService : IAuthService
             return null;
         }
     }
+
+    // Unpadded base64url, the form PKCE specifies. Infrastructure has no reference to
+    // ASP.NET's WebEncoders, and this is three lines.
+    private static string Base64Url(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private record AuthResponse(string Token, DateTime Expiry, string RefreshToken);
 }

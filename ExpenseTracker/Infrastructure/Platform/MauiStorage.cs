@@ -54,3 +54,33 @@ public class MauiSecureStore(ILogger<MauiSecureStore> logger) : ISecureStore
 
     public void Remove(string key) => SecureStorage.Default.Remove(key);
 }
+
+/// <summary>
+/// Runs the Microsoft sign-in in the system browser through MAUI's <c>WebAuthenticator</c>.
+/// </summary>
+/// <remarks>
+/// Not offered on Windows: <c>WebAuthenticator</c> there needs the custom URL scheme declared in
+/// the package manifest and activation wired up in the app, and nothing has been built or
+/// tried for it. A button that opens a browser and never comes back is worse than no button, so
+/// the capability stays off until someone has run it on a Windows machine.
+/// </remarks>
+public class MauiExternalAuthBrowser : IExternalAuthBrowser
+{
+    public bool IsAvailable => !OperatingSystem.IsWindows();
+
+    public async Task<IReadOnlyDictionary<string, string>?> AuthenticateAsync(
+        Uri startUrl, Uri callbackUrl, CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await WebAuthenticator.Default.AuthenticateAsync(
+                new WebAuthenticatorOptions { Url = startUrl, CallbackUrl = callbackUrl });
+            return result.Properties;
+        }
+        catch (TaskCanceledException)
+        {
+            // WebAuthenticator reports the user closing the browser as a cancellation.
+            return null;
+        }
+    }
+}

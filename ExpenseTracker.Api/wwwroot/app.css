@@ -218,3 +218,24 @@
 .login-note a:hover { text-decoration: underline; }
 
 .login-success { color: #4caf50; font-size: .875rem; line-height: 1.5; }
+
+/* "Sign in with Microsoft" - a link styled as a secondary button, under the password form. */
+.login-or {
+    margin: 1rem 0 .75rem;
+    text-align: center;
+    font-size: .875rem;
+    color: var(--login-text-muted);
+}
+
+.login-provider {
+    display: block;
+    padding: .625rem 1rem;
+    text-align: center;
+    text-decoration: none;
+    font-size: .9375rem;
+    color: var(--login-primary);
+    border: 1px solid var(--login-primary);
+    border-radius: 4px;
+}
+
+.login-provider:hover { background: color-mix(in srgb, var(--login-primary) 8%, transparent); }

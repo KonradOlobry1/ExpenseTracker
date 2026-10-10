@@ -11,6 +11,12 @@ public enum AuthFailureReason
     AccountLocked,
     NetworkError,
     ServerError,
+
+    /// <summary>The user closed the Microsoft sign-in without finishing. Not an error to show.</summary>
+    Cancelled,
+
+    /// <summary>A password account already uses the Microsoft account's email; they are not merged.</summary>
+    EmailInUse,
 }
 
 /// <summary>

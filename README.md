@@ -174,9 +174,41 @@ environment variables in a container or App Service:
 |---|---|
 | `Jwt__Key` | Token signing key, 32 bytes minimum |
 | `ConnectionStrings__DefaultConnection` | SQL Server connection string |
+| `Entra__ClientId`, `Entra__ClientSecret` | Optional. App registration for "Sign in with Microsoft"; the feature is off unless both are set |
+| `Entra__Authority` | Optional. Default `https://login.microsoftonline.com/common/v2.0` (any work, school or personal account). Use a tenant id in place of `common` to restrict to one organisation |
 | `RunMigrationsAtStartup` | Applies migrations on boot. Default `true`; set `false` once the schema is settled |
 | `RateLimit__AuthPermitPerMinute` | Sign-in and registration attempts per IP. Default `10` |
 | `RateLimit__SyncPermitPerMinute` | Sync requests per account. Default `30` |
+
+## Sign in with Microsoft
+
+Optional, off until configured. Adds a "Sign in with Microsoft" button to the web login page and
+to the app's login page, backed by Microsoft Entra ID.
+
+**Register once** (Entra admin centre → App registrations → New registration):
+
+- Supported account types: *accounts in any organizational directory and personal Microsoft
+  accounts* (matches the default `common` authority)
+- Redirect URI, type *Web*: `https://<your host>/signin-microsoft`, plus
+  `https://localhost:<port>/signin-microsoft` for local runs
+- Certificates & secrets → new client secret
+
+Then supply `Entra__ClientId` and `Entra__ClientSecret` (user-secrets locally, `.env` under
+Compose, App Service settings in production).
+
+How it behaves:
+
+- **Web:** an ordinary OpenID Connect code flow. Once the identity is verified the site signs
+  the user in with its own cookie, exactly as a password sign-in does.
+- **App:** the app never talks to Entra. It opens the server in the system browser, the server
+  does the sign-in, and the browser returns to `expensetracker://auth` with a two-minute code
+  that the app trades for the usual access/refresh tokens. The code is bound to a PKCE
+  verifier, because the custom scheme can be claimed by other apps. Not offered on Windows yet.
+- **Accounts:** a Microsoft identity is matched by its own subject id. A new one creates a new
+  account with no password. If its email already belongs to a password account, sign-in is
+  refused rather than merged - Entra's email claim is not proof of ownership, so merging would
+  allow account takeover. Linking from inside a signed-in session is the safe way to add that
+  and does not exist yet.
 
 ## Health
 

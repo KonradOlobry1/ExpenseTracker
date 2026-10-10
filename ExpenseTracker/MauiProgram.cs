@@ -54,6 +54,7 @@ namespace ExpenseTracker
             // everything they do is ordinary code that runs — and is tested — off-device.
             builder.Services.AddSingleton<IPreferenceStore, MauiPreferenceStore>();
             builder.Services.AddSingleton<ISecureStore, MauiSecureStore>();
+            builder.Services.AddSingleton<IExternalAuthBrowser, MauiExternalAuthBrowser>();
 
             // ── Presentation — UI Services (singletons — shared app state) ────
             builder.Services.AddSingleton<LocalSettings>();

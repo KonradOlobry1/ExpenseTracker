@@ -48,6 +48,17 @@ public class WebAuthService(IHttpContextAccessor accessor, IJSRuntime js) : IAut
     public Task<AuthResult> LoginAsync(string email, string password, CancellationToken ct = default)
         => throw new NotSupportedException("Sign in via /account/login — a cookie cannot be set from a Blazor circuit.");
 
+    /// <summary>
+    /// False because the web does not sign in through this service at all: the link on
+    /// /account/login is a plain redirect, for the same cookie reason as the password form.
+    /// </summary>
+    public bool SupportsMicrosoftSignIn => false;
+
+    // A failure rather than a throw: an unhandled exception in a circuit takes the whole
+    // circuit down (see LogoutAsync below), and nothing should call this when the flag is false.
+    public Task<AuthResult> SignInWithMicrosoftAsync(CancellationToken ct = default)
+        => Task.FromResult(AuthResult.Fail(AuthFailureReason.ServerError));
+
     public Task<AuthResult> RegisterAsync(string email, string password, CancellationToken ct = default)
         => throw new NotSupportedException("Register via /account/login — a cookie cannot be set from a Blazor circuit.");
 
