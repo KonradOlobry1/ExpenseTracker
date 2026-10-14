@@ -18,7 +18,13 @@ public class PaymentNotificationService : NotificationListenerService
     {
         "com.google.android.apps.walletnfcrel",
         "com.google.android.apps.nbu.paisa.user",
-        "com.android.vending"
+        "com.android.vending",
+#if DEBUG
+        // Notifications posted with `adb shell cmd notification post` come from this package.
+        // Only in Debug builds: nothing but Google's own apps should be able to raise a payment
+        // prompt on a release build, and no other app can pose as one of the packages above.
+        "com.android.shell",
+#endif
     };
 
     // Patterns to detect payment amounts like "PLN 25.99", "$12.50", "25,99 zł", "€9.99"
@@ -33,6 +39,10 @@ public class PaymentNotificationService : NotificationListenerService
 
         var extras = sbn.Notification?.Extras;
         if (extras is null) return;
+
+#if DEBUG
+        global::Android.Util.Log.Debug("ExpenseTracker", $"Notification posted: pkg={sbn.PackageName} key={sbn.Key}");
+#endif
 
         var title = extras.GetString(global::Android.App.Notification.ExtraTitle) ?? "";
         var text  = extras.GetString(global::Android.App.Notification.ExtraText) ?? "";

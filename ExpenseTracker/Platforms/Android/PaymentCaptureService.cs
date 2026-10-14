@@ -21,8 +21,30 @@ public class PaymentCaptureService : IPaymentCaptureService
     private void OnStaticPaymentDetected(decimal amount, string merchant)
         => PaymentDetected?.Invoke(amount, merchant);
 
+    // Android can deliver the same payment notification more than once - Google Pay updates
+    // its notifications in place, and each update reaches the listener as a new post - and
+    // every delivery used to open its own prompt. The same amount at the same merchant inside
+    // this window is one payment. Two real purchases that identical, that quickly, are rare
+    // enough that suppressing the second costs less than a stack of duplicate dialogs.
+    private static readonly TimeSpan DuplicateWindow = TimeSpan.FromSeconds(10);
+    private static readonly object DuplicateGate = new();
+    private static (decimal Amount, string Merchant, DateTime At)? _lastPayment;
+
     internal static void RaisePaymentDetected(decimal amount, string merchant)
-        => StaticPaymentDetected?.Invoke(amount, merchant);
+    {
+        lock (DuplicateGate)
+        {
+            if (_lastPayment is { } last
+                && last.Amount == amount
+                && last.Merchant == merchant
+                && DateTime.UtcNow - last.At < DuplicateWindow)
+                return;
+
+            _lastPayment = (amount, merchant, DateTime.UtcNow);
+        }
+
+        StaticPaymentDetected?.Invoke(amount, merchant);
+    }
 
     public bool IsAvailable => true;
 

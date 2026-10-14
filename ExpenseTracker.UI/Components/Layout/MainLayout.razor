@@ -265,22 +265,35 @@ else
         _ => L["Sync_ServerError"],
     };
 
+    // One prompt at a time. The event arrives on the notification listener's thread, so two
+    // payments in quick succession could otherwise both pass a plain bool check.
+    int _paymentPromptOpen;
+
     async void OnPaymentDetected(decimal amount, string merchant)
     {
-        var confirmed = await DialogService.ShowMessageBox(
-            L["Sync_PaymentDetected"],
-            string.Format(L["Sync_PaymentPrompt"], amount.ToString("C"), merchant),
-            yesText: L["Sync_AddExpense"],
-            cancelText: L["Sync_Dismiss"]);
+        if (Interlocked.Exchange(ref _paymentPromptOpen, 1) == 1) return;
 
-        if (confirmed == true)
+        try
         {
-            var prefilled = new Expense { Amount = amount, Description = merchant, Date = DateTime.Today };
-            var parameters = new DialogParameters<ExpenseDialog> { { x => x.Expense, prefilled } };
-            var dialog = await DialogService.ShowAsync<ExpenseDialog>(L["Expenses_AddExpense"], parameters);
-            var dialogResult = await dialog.Result;
-            if (dialogResult is { Canceled: false, Data: Expense expense })
-                await ExpenseService.CreateAsync(expense);
+            var confirmed = await DialogService.ShowMessageBox(
+                L["Sync_PaymentDetected"],
+                string.Format(L["Sync_PaymentPrompt"], amount.ToString("C"), merchant),
+                yesText: L["Sync_AddExpense"],
+                cancelText: L["Sync_Dismiss"]);
+
+            if (confirmed == true)
+            {
+                var prefilled = new Expense { Amount = amount, Description = merchant, Date = DateTime.Today };
+                var parameters = new DialogParameters<ExpenseDialog> { { x => x.Expense, prefilled } };
+                var dialog = await DialogService.ShowAsync<ExpenseDialog>(L["Expenses_AddExpense"], parameters);
+                var dialogResult = await dialog.Result;
+                if (dialogResult is { Canceled: false, Data: Expense expense })
+                    await ExpenseService.CreateAsync(expense);
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _paymentPromptOpen, 0);
         }
     }
 
