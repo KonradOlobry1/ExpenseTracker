@@ -176,6 +176,8 @@ environment variables in a container or App Service:
 | `ConnectionStrings__DefaultConnection` | SQL Server connection string |
 | `Entra__ClientId`, `Entra__ClientSecret` | Optional. App registration for "Sign in with Microsoft"; the feature is off unless both are set |
 | `Entra__Authority` | Optional. Default `https://login.microsoftonline.com/common/v2.0` (any work, school or personal account). Use a tenant id in place of `common` to restrict to one organisation |
+| `Email__Endpoint`, `Email__SenderAddress`, `Email__PublicBaseUrl` | Optional. Sends password reset emails through Azure Communication Services. Endpoint is the resource address (the app signs in with its managed identity, no key); sender is an address on a connected domain; base URL is the site's public `https` address that reset links point at. All three together, or the app refuses to start. Without them reset delivers nothing outside Development |
+| `Email__ConnectionString` | Optional fallback to `Email__Endpoint`: a Communication Services connection string (contains a key - keep it in Key Vault) |
 | `RunMigrationsAtStartup` | Applies migrations on boot. Default `true`; set `false` once the schema is settled |
 | `RateLimit__AuthPermitPerMinute` | Sign-in and registration attempts per IP. Default `10` |
 | `RateLimit__SyncPermitPerMinute` | Sync requests per account. Default `30` |
