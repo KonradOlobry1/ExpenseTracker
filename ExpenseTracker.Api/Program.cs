@@ -228,10 +228,23 @@ builder.Services.AddScoped<ICategoryRepository, CloudCategoryRepository>();
 builder.Services.AddScoped<IIncomeRepository, CloudIncomeRepository>();
 builder.Services.AddScoped<ISubscriptionRepository, CloudSubscriptionRepository>();
 
-// Password reset delivery. The logging implementation is a development stand-in: outside
-// Development it deliberately delivers nothing and logs an error, so reset does not silently
-// appear to work in production before a real provider is wired up. See LoggingPasswordResetSender.
-builder.Services.AddScoped<IPasswordResetSender, LoggingPasswordResetSender>();
+// Password reset delivery. With Azure Communication Services configured (Email:Endpoint, or
+// the key-based Email:ConnectionString as a fallback) the link is emailed. Without it the
+// logging implementation is a development stand-in: outside Development it deliberately
+// delivers nothing and logs an error, so reset does not silently appear to work in production
+// before a real provider is wired up. See LoggingPasswordResetSender.
+var mail = builder.Configuration.GetSection(EmailOptions.Section).Get<EmailOptions>() ?? new EmailOptions();
+mail.Validate();   // a half-configured setup fails startup rather than quietly never sending
+builder.Services.AddSingleton(mail);
+if (mail.Enabled)
+{
+    builder.Services.AddSingleton<IMailTransport, AcsMailTransport>();
+    builder.Services.AddScoped<IPasswordResetSender, MailPasswordResetSender>();
+}
+else
+{
+    builder.Services.AddScoped<IPasswordResetSender, LoggingPasswordResetSender>();
+}
 
 // Same Application services the MAUI app uses — they only know the repository interfaces.
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
