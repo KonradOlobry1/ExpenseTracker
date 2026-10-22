@@ -40,6 +40,16 @@
                            OnClick="DoSignIn">
                     @(_working ? "..." : L["Login_SignIn"])
                 </MudButton>
+                @* Resetting a password is a web page (the emailed link opens in a browser anyway),
+                   so this just sends the user there. A link to another origin opens in the
+                   system browser, not inside the app's own web view. Hidden where there is no
+                   server address to point at. *@
+                @if (!string.IsNullOrEmpty(AuthService.ApiBaseUrl))
+                {
+                    <MudLink Href="@ForgotPasswordUrl" Target="_blank" Typo="Typo.body2" Class="align-self-center">
+                        @L["Login_ForgotPassword"]
+                    </MudLink>
+                }
                 @* Only where this platform can run the browser round trip - an inert button is
                    indistinguishable from a broken one. *@
                 @if (AuthService.SupportsMicrosoftSignIn)
@@ -120,6 +130,8 @@
     bool _showRegPassword;
 
     bool _working;
+
+    string ForgotPasswordUrl => $"{AuthService.ApiBaseUrl.TrimEnd('/')}/account/forgot-password";
 
     [SupplyParameterFromQuery(Name = "expired")] public bool Expired { get; set; }
 
